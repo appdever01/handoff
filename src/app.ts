@@ -21,6 +21,7 @@ import { retain } from "./retention.ts";
 import { payments, type PaymentAdapter } from "./payments.ts";
 import { pairing } from "./pairing.ts";
 import { CloudinaryPreviewError } from "./cloudinary.ts";
+import { createAlertMonitor, type AlertConfiguration } from "./alerts.ts";
 import {
   createPreview,
   scanFile,
@@ -47,6 +48,7 @@ export async function buildApp(
     logger?: boolean;
     production?: boolean;
     readiness?: () => Promise<Record<string, boolean>>;
+    alerts?: AlertConfiguration;
     payments?: Partial<Record<"NIM" | "USDT", PaymentAdapter>>;
   } = {},
 ) {
@@ -854,30 +856,52 @@ export async function buildApp(
     sweep();
     await maintenance;
   });
+  async function serviceReadiness() {
+    let dependencies: Record<string, boolean> = {};
+    try {
+      dependencies = options.readiness ? await options.readiness() : {};
+      store.db.prepare("SELECT 1").get();
+    } catch {
+      dependencies.storage = false;
+    }
+    const checks = {
+      storage: true,
+      retention: maintenanceHealthy,
+      payments: paymentService.healthy(),
+      ...dependencies,
+    };
+    const ok = Object.values(checks).every(Boolean);
+    return { ok, checks };
+  }
   app.get(
     "/api/ready",
     { config: { rateLimit: false } },
     async (_req, reply) => {
-      let dependencies: Record<string, boolean> = {};
-      try {
-        dependencies = options.readiness ? await options.readiness() : {};
-        store.db.prepare("SELECT 1").get();
-      } catch {
-        dependencies.storage = false;
-      }
-      const checks = {
-        storage: true,
-        retention: maintenanceHealthy,
-        payments: paymentService.healthy(),
-        ...dependencies,
-      };
-      const ok = Object.values(checks).every(Boolean);
-      return reply.code(ok ? 200 : 503).send({ ok, checks });
+      const result = await serviceReadiness();
+      return reply.code(result.ok ? 200 : 503).send(result);
     },
   );
   app.addHook("onClose", async () => {
     clearInterval(retentionTimer);
     await maintenance;
   });
+  if (options.alerts) {
+    const alerts = createAlertMonitor({
+      configuration: options.alerts,
+      directory,
+      check: async () => (await serviceReadiness()).ok,
+      report: (code) =>
+        app.log.warn(
+          { alert: code },
+          "Operational alert delivery needs attention",
+        ),
+    });
+    app.addHook("onReady", async () => {
+      alerts.start();
+    });
+    app.addHook("onClose", async () => {
+      await alerts.stop();
+    });
+  }
   return app;
 }

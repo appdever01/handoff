@@ -21,8 +21,10 @@ import {
 import { runtimeConfiguration } from "./runtime.ts";
 import { readinessCheck } from "./readiness.ts";
 import type { PaymentAdapter } from "./payments.ts";
+import { alertConfiguration } from "./alerts.ts";
 
 const config = runtimeConfiguration(process.env);
+const alerts = alertConfiguration(process.env);
 const { sandbox, directory } = config;
 const cloudinary =
   config.previewProvider === "cloudinary"
@@ -62,6 +64,7 @@ try {
     payments: adapters,
     scan: scanDaemon,
     preview,
+    alerts,
     readiness: readinessCheck({
       directory,
       scanner: () => scannerStatus(),
