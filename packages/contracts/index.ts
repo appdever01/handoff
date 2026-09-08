@@ -57,6 +57,12 @@ export type Session = {
 export type PublicHandoff = Omit<Handoff, "clientLabel" | "clientWallet"> & {
   checkoutEnabled: boolean;
   downloadDays: number;
+  access: {
+    canCheckout: boolean;
+    requested: boolean;
+    isCreator: boolean;
+    isApprovedClient: boolean;
+  };
 };
 export type PaymentIntent = {
   id: string;
@@ -90,4 +96,26 @@ export type Receipt = {
   paidAt: number;
   verifiedAt: number;
   expiresAt: number;
+};
+
+export type Health = {
+  ok: boolean;
+  sandbox: boolean;
+  checkoutEnabled: boolean;
+  mode: "sandbox" | "wallet";
+  currencies: Currency[];
+  payments: Record<Currency, { enabled: boolean; reason: string | null }>;
+};
+export type AccessRequest = {
+  handoffId: string;
+  title: string;
+  wallet: string;
+};
+export type SupportTicket = {
+  id: string;
+  kind: "access" | "refund" | "other";
+  message: string;
+  createdAt: number;
+  status: "open" | "resolved" | "refund-recorded" | "declined";
+  refundTransaction: string | null;
 };

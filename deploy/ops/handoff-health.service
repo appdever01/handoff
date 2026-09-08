@@ -1,0 +1,13 @@
+[Unit]
+Description=Handoff readiness disk and offsite backup checks
+After=docker.service network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Environment=HANDOFF_OPS_ENV=/etc/handoff/ops.env
+ExecStart=/opt/handoff/backend/deploy/ops/handoff-ops.sh check
+UMask=0077
+TimeoutStartSec=2min
+StandardOutput=journal
+StandardError=journal

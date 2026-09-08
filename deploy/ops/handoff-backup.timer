@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily Handoff encrypted backup
+
+[Timer]
+OnCalendar=*-*-* 03:00:00
+RandomizedDelaySec=15m
+Persistent=true
+Unit=handoff-backup.service
+
+[Install]
+WantedBy=timers.target

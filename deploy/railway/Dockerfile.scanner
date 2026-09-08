@@ -1,0 +1,3 @@
+FROM clamav/clamav:stable@sha256:1fdfd24c6f0a0fb60788481487459a6d4eda8a9b448641594e04db8410d34422
+COPY deploy/railway/clamd.conf /etc/clamav/clamd.conf
+HEALTHCHECK --interval=30s --timeout=10s --start-period=300s --retries=6 CMD clamdscan --config-file=/etc/clamav/clamd.conf --ping=1

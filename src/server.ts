@@ -1,21 +1,42 @@
 import { mkdir, writeFile, rm } from "node:fs/promises";
-import { resolve, join } from "node:path";
+import { join } from "node:path";
 import { buildApp } from "./app.ts";
 import { polygonTestnet, nimiqTestnet } from "./chains.ts";
-import { isolatedPreview, scanDaemon } from "./processing.ts";
+import {
+  scanDaemon,
+  scannerStatus,
+  previewWorkerStatus,
+} from "./processing.ts";
+import {
+  previewFromEnvironment,
+  workerConfigurationFromEnvironment,
+  checkPreviewWorker,
+  createRemotePreview,
+} from "./processing-client.ts";
+import {
+  cloudinaryConfiguration,
+  createCloudinaryPreview,
+  cloudinaryStatus,
+} from "./cloudinary.ts";
+import { runtimeConfiguration } from "./runtime.ts";
+import { readinessCheck } from "./readiness.ts";
 import type { PaymentAdapter } from "./payments.ts";
 
-if (process.env.NODE_ENV === "production")
-  throw new Error(
-    "Production startup is disabled until real-device and chain release gates pass.",
-  );
-const sandbox = process.env.HANDOFF_SANDBOX === "1";
-if (
-  sandbox &&
-  process.env.LISTEN_HOST &&
-  process.env.LISTEN_HOST !== "127.0.0.1"
-)
-  throw new Error("Sandbox must bind to loopback");
+const config = runtimeConfiguration(process.env);
+const { sandbox, directory } = config;
+const cloudinary =
+  config.previewProvider === "cloudinary"
+    ? cloudinaryConfiguration({ ...process.env, DATA_DIR: directory })
+    : undefined;
+const worker =
+  config.previewProvider === "docker" && process.env.PREVIEW_WORKER_URL
+    ? await workerConfigurationFromEnvironment(process.env)
+    : undefined;
+const preview = cloudinary
+  ? createCloudinaryPreview(cloudinary)
+  : worker
+    ? createRemotePreview(worker)
+    : await previewFromEnvironment(process.env);
 const adapters: Partial<Record<"NIM" | "USDT", PaymentAdapter>> = {};
 if (process.env.TESTNET_PAYMENTS === "1" && !sandbox) {
   if (process.env.NIMIQ_TESTNET_RPC)
@@ -26,26 +47,35 @@ if (process.env.TESTNET_PAYMENTS === "1" && !sandbox) {
       process.env.TEST_USDT_ADDRESS,
     );
 }
-const directory = resolve(
-  sandbox ? ".sandbox-data" : (process.env.DATA_DIR ?? ".data"),
-);
 await mkdir(directory, { recursive: true, mode: 0o700 });
 const lock = join(directory, ".server-lock");
+if (config.production) await rm(lock, { force: true });
 await writeFile(lock, String(process.pid), { flag: "wx", mode: 0o600 });
 let app: Awaited<ReturnType<typeof buildApp>> | undefined;
 try {
   app = await buildApp({
     directory,
-    origin: process.env.APP_ORIGIN,
+    origin: config.origin,
+    production: config.production,
     logger: true,
     sandbox,
     payments: adapters,
     scan: scanDaemon,
-    preview: isolatedPreview,
+    preview,
+    readiness: readinessCheck({
+      directory,
+      scanner: () => scannerStatus(),
+      preview: () =>
+        cloudinary
+          ? cloudinaryStatus(cloudinary)
+          : worker
+            ? checkPreviewWorker(worker)
+            : previewWorkerStatus(),
+    }),
   });
   await app.listen({
-    host: process.env.LISTEN_HOST ?? "127.0.0.1",
-    port: Number(process.env.PORT ?? 4003),
+    host: config.host,
+    port: config.port,
   });
 } catch (error) {
   if (app) await app.close();

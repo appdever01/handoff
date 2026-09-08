@@ -9,6 +9,7 @@ import { privateKeyToAccount } from "viem/accounts";
 import { PrivateKey, PublicKey, Signature } from "@nimiq/core";
 import { buildApp } from "../src/app.ts";
 import { verifyProof } from "../src/auth.ts";
+import { createPreview } from "../src/media.ts";
 import { openStore } from "../src/store.ts";
 
 const origin = "http://localhost:5173";
@@ -418,10 +419,20 @@ test("scanner failure quarantines files and prevents approval or publication", a
     join(tmpdir(), "handoff-quarantine-"),
   );
   let scanClean = false;
+  let previewFails = false;
+  const processingOrder: string[] = [];
   const isolated = await buildApp({
     directory: isolatedDirectory,
     origin,
-    scan: async () => scanClean,
+    scan: async () => {
+      processingOrder.push("scan");
+      return scanClean;
+    },
+    preview: async (bytes) => {
+      processingOrder.push("preview");
+      if (previewFails) throw new Error("Preview unavailable");
+      return createPreview(bytes);
+    },
   });
   try {
     const challenge = (
@@ -475,6 +486,9 @@ test("scanner failure quarantines files and prevents approval or publication", a
     });
     const file = uploaded.json().handoff.files[0];
     assert.equal(file.scan, "quarantined");
+    assert.equal(file.mime, "application/octet-stream");
+    assert.deepEqual(processingOrder, ["scan"]);
+    const placeholderHash = file.previewSha256;
     assert.equal(
       (
         await isolated.inject({
@@ -502,6 +516,23 @@ test("scanner failure quarantines files and prevents approval or publication", a
       404,
     );
     scanClean = true;
+    previewFails = true;
+    const failed = await isolated.inject({
+      method: "POST",
+      url: `/api/handoffs/${draft.id}/files/${file.id}/rescan`,
+      headers: { origin, cookie: isolatedCookie },
+    });
+    assert.equal(failed.statusCode, 500);
+    const stillQuarantined = (
+      await isolated.inject({
+        url: `/api/handoffs/${draft.id}`,
+        headers: { cookie: isolatedCookie },
+      })
+    ).json().handoff.files[0];
+    assert.equal(stillQuarantined.scan, "quarantined");
+    assert.equal(stillQuarantined.previewSha256, placeholderHash);
+    assert.deepEqual(processingOrder, ["scan", "scan", "preview"]);
+    previewFails = false;
     const rescanned = await isolated.inject({
       method: "POST",
       url: `/api/handoffs/${draft.id}/files/${file.id}/rescan`,
@@ -510,6 +541,18 @@ test("scanner failure quarantines files and prevents approval or publication", a
     assert.equal(rescanned.statusCode, 200);
     assert.equal(rescanned.json().handoff.files[0].scan, "clean");
     assert.equal(rescanned.json().handoff.files[0].approved, false);
+    assert.equal(rescanned.json().handoff.files[0].mime, "image/png");
+    assert.notEqual(
+      rescanned.json().handoff.files[0].previewSha256,
+      placeholderHash,
+    );
+    assert.deepEqual(processingOrder, [
+      "scan",
+      "scan",
+      "preview",
+      "scan",
+      "preview",
+    ]);
   } finally {
     await isolated.close();
     await rm(isolatedDirectory, { recursive: true, force: true });
@@ -626,6 +669,22 @@ test("editable originals cannot publish until a scanned supplied preview is appr
   assert.equal(supplied.statusCode, 200, supplied.body);
   assert.equal(supplied.json().handoff.files[0].suppliedPreviewRequired, false);
   assert.equal(supplied.json().handoff.files[0].approved, false);
+  const beforeRescan = supplied.json().handoff.files[0];
+  const rescanned = await app.inject({
+    method: "POST",
+    url: `/api/handoffs/${draft.id}/files/${file.id}/rescan`,
+    headers: { origin, cookie },
+  });
+  assert.equal(rescanned.statusCode, 200, rescanned.body);
+  assert.equal(
+    rescanned.json().handoff.files[0].previewSha256,
+    beforeRescan.previewSha256,
+  );
+  assert.equal(
+    rescanned.json().handoff.files[0].suppliedPreviewRequired,
+    false,
+  );
+
   assert.equal(
     (
       await app.inject({

@@ -1,0 +1,12 @@
+**
+!package.json
+!package-lock.json
+!src/
+!src/**
+!packages/
+!packages/contracts/
+!packages/contracts/**
+!deploy/
+!deploy/railway/
+!deploy/railway/Dockerfile
+!deploy/railway/entrypoint.sh

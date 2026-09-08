@@ -1,0 +1,5 @@
+**
+!deploy/
+!deploy/railway/
+!deploy/railway/Dockerfile.scanner
+!deploy/railway/clamd.conf

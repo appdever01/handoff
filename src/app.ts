@@ -12,6 +12,7 @@ import {
   type Handoff,
   type PublicHandoff,
   type Session,
+  type Health,
 } from "../packages/contracts/index.ts";
 import { openStore } from "./store.ts";
 import { hash, proofSchema, verifyProof } from "./auth.ts";
@@ -19,6 +20,7 @@ import { sandboxAdapter, sandboxRoutes } from "./sandbox.ts";
 import { retain } from "./retention.ts";
 import { payments, type PaymentAdapter } from "./payments.ts";
 import { pairing } from "./pairing.ts";
+import { CloudinaryPreviewError } from "./cloudinary.ts";
 import {
   createPreview,
   scanFile,
@@ -43,6 +45,8 @@ export async function buildApp(
     scan?: typeof scanFile;
     preview?: typeof createPreview;
     logger?: boolean;
+    production?: boolean;
+    readiness?: () => Promise<Record<string, boolean>>;
     payments?: Partial<Record<"NIM" | "USDT", PaymentAdapter>>;
   } = {},
 ) {
@@ -72,7 +76,19 @@ export async function buildApp(
   const secure = new URL(origin).protocol === "https:";
   const store = openStore(directory);
   const app = Fastify({
-    logger: options.logger ?? false,
+    logger: options.logger
+      ? {
+          redact: [
+            "req.headers.authorization",
+            "req.headers.cookie",
+            "res.headers['set-cookie']",
+          ],
+        }
+      : false,
+    disableRequestLogging: options.production ?? false,
+    trustProxy: options.production
+      ? (_address: string, hop: number) => hop === 0
+      : false,
     bodyLimit: 16_384,
     requestTimeout: 60_000,
   });
@@ -103,10 +119,12 @@ export async function buildApp(
       error instanceof HttpError
         ? error.statusCode
         : ((error as { statusCode?: number }).statusCode ?? 500);
-    if (status >= 500) req.log.error(error);
+    if (error instanceof CloudinaryPreviewError)
+      req.log.warn({ preview: error.diagnostic }, "Preview processing failed");
+    else if (status >= 500) req.log.error(error);
     return reply.code(status).send({
       error:
-        status >= 500
+        status >= 500 && !(error instanceof CloudinaryPreviewError)
           ? "Something went wrong. Please try again."
           : (error as Error).message,
     });
@@ -121,16 +139,21 @@ export async function buildApp(
     if (!user?.scope) return;
     const path = req.url.split("?")[0];
     const common =
+      path === "/api/health" ||
+      path === "/api/ready" ||
       path === "/api/session" ||
       path === "/api/logout" ||
-      path.startsWith("/api/devices");
+      path.startsWith("/api/devices") ||
+      /^\/api\/support(\/|$)/.test(path);
     const download =
       req.method === "GET" &&
       /^\/api\/(purchases|originals|receipts|public|previews)(\/|$)/.test(path);
     const upload =
       (/^\/api\/handoffs(\/|$)/.test(path) &&
         !/(checkout|bind-client)$/.test(path)) ||
-      (req.method === "GET" && path.startsWith("/api/previews/"));
+      (req.method === "GET" &&
+        (/^\/api\/(previews|receipts|public)(\/|$)/.test(path) ||
+          path === "/api/access-requests"));
     if (!common && !(user.scope === "download" ? download : upload))
       throw new HttpError(
         403,
@@ -142,7 +165,11 @@ export async function buildApp(
     const user = session(req);
     const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
     const handoff = store.get(id);
-    if (!handoff || handoff.creator !== user.address)
+    if (
+      !handoff ||
+      handoff.creator !== user.address ||
+      handoff.currency !== user.currency
+    )
       throw new HttpError(404, "Handoff not found");
     if (
       store.db
@@ -159,14 +186,53 @@ export async function buildApp(
     if (delta <= 0 || delta > 30 * 86400_000)
       throw new HttpError(400, "Choose a deadline within the next 30 days");
   }
-  app.get("/api/health", async () => ({
-    ok: true,
-    checkoutEnabled: Boolean(
-      options.sandbox ||
-      (options.payments && Object.keys(options.payments).length),
-    ),
-    sandbox: Boolean(options.sandbox),
-  }));
+  const paymentCapabilities: Health["payments"] = {
+    NIM: {
+      enabled: !options.sandbox && Boolean(options.payments?.NIM),
+      reason: options.sandbox
+        ? "NIM payments are unavailable in the local sandbox"
+        : options.payments?.NIM
+          ? null
+          : "Nimiq testnet checkout needs a configured history RPC",
+    },
+    USDT: {
+      enabled: Boolean(options.sandbox || options.payments?.USDT),
+      reason:
+        options.sandbox || options.payments?.USDT
+          ? null
+          : "USDT test checkout needs a Polygon Amoy RPC and a six-decimal test token",
+    },
+  };
+  function currentStatus(handoff: Handoff): Handoff {
+    return {
+      ...handoff,
+      status: store.db
+        .prepare("SELECT handoff FROM entitlements WHERE handoff=?")
+        .get(handoff.id)
+        ? "paid"
+        : store.db
+              .prepare("SELECT handoff FROM intents WHERE handoff=?")
+              .get(handoff.id)
+          ? "payment-pending"
+          : handoff.status,
+    };
+  }
+  app.get(
+    "/api/health",
+    { config: { rateLimit: false } },
+    async (): Promise<Health> => ({
+      ok: true,
+      checkoutEnabled: Object.values(paymentCapabilities).some(
+        (p) => p.enabled,
+      ),
+      sandbox: Boolean(options.sandbox),
+      mode: options.sandbox ? "sandbox" : "wallet",
+      currencies: currencySchema.options.filter(
+        (currency) => paymentCapabilities[currency].enabled,
+      ),
+      payments: paymentCapabilities,
+    }),
+  );
   app.get("/api/session", async (req) => ({
     user: store.session(hash(req.cookies.handoff_session ?? "")) ?? null,
   }));
@@ -234,19 +300,34 @@ export async function buildApp(
     return { ok: true };
   });
   app.get("/api/handoffs", async (req) => ({
-    handoffs: store.list(session(req).address).map((h) => ({
-      ...h,
-      status: store.db
-        .prepare("SELECT handoff FROM entitlements WHERE handoff=?")
-        .get(h.id)
-        ? "paid"
-        : store.db
-              .prepare("SELECT handoff FROM intents WHERE handoff=?")
-              .get(h.id)
-          ? "payment-pending"
-          : h.status,
-    })),
+    handoffs: store.list(session(req).address).map(currentStatus),
   }));
+  app.get("/api/access-requests", async (req) => {
+    const user = session(req);
+    return {
+      requests: store
+        .list(user.address)
+        .filter(
+          (h) =>
+            h.currency === user.currency &&
+            h.status === "awaiting-client" &&
+            !h.clientWallet &&
+            Date.parse(h.deadline) > Date.now(),
+        )
+        .flatMap((h) =>
+          store.db
+            .prepare(
+              "SELECT wallet FROM requests WHERE handoff=? ORDER BY rowid",
+            )
+            .all(h.id)
+            .map((row) => ({
+              handoffId: h.id,
+              title: h.title,
+              wallet: row.wallet,
+            })),
+        ),
+    };
+  });
   app.post("/api/handoffs", async (req, reply) => {
     const user = session(req);
     const data = draftSchema.parse(req.body);
@@ -257,10 +338,7 @@ export async function buildApp(
         "Connect a wallet for the selected currency first",
       );
     if (store.list(user.address).length >= 50)
-      throw new HttpError(
-        409,
-        "This pilot allows up to 50 handoffs per wallet",
-      );
+      throw new HttpError(409, "You can keep up to 50 handoffs per wallet");
     const handoff: Handoff = {
       ...data,
       id: randomUUID(),
@@ -275,7 +353,26 @@ export async function buildApp(
     store.save(handoff);
     return reply.code(201).send({ handoff });
   });
-  app.get("/api/handoffs/:id", async (req) => ({ handoff: owned(req) }));
+  app.get("/api/handoffs/:id", async (req) => ({
+    handoff: currentStatus(owned(req)),
+  }));
+  app.delete("/api/handoffs/:id", async (req) => {
+    const handoff = owned(req, true);
+    if (uploads > 0)
+      throw new HttpError(
+        409,
+        "Wait for file processing to finish before deleting a draft",
+      );
+    store.db.prepare("DELETE FROM handoffs WHERE id=?").run(handoff.id);
+    store.db.prepare("DELETE FROM requests WHERE handoff=?").run(handoff.id);
+    await Promise.all(
+      handoff.files.flatMap((file) => [
+        rm(join(directory, "originals", file.id), { force: true }),
+        rm(join(directory, "previews", `${file.id}.jpg`), { force: true }),
+      ]),
+    );
+    return { ok: true };
+  });
   app.put("/api/handoffs/:id", async (req) => {
     const handoff = owned(req, true);
     const data = draftSchema.parse(req.body);
@@ -320,24 +417,8 @@ export async function buildApp(
     const previewPath = join(directory, "previews", `${id}.jpg`);
     try {
       const part = await req.file();
-      if (!part) throw new HttpError(400, "Choose an image to upload");
+      if (!part) throw new HttpError(400, "Choose a file to upload");
       const bytes = await part.toBuffer();
-      let result: Awaited<ReturnType<typeof createPreview>>;
-      try {
-        const mime = sourceType(bytes);
-        result = mime
-          ? {
-              mime,
-              preview: await sourcePlaceholder(),
-              previewMime: "image/jpeg",
-            }
-          : await (options.preview ?? createPreview)(bytes);
-      } catch {
-        throw new HttpError(
-          400,
-          "Use a valid still JPEG, PNG or WebP image, up to 24 megapixels",
-        );
-      }
       await mkdir(join(directory, "originals"), {
         recursive: true,
         mode: 0o700,
@@ -348,6 +429,24 @@ export async function buildApp(
       });
       await writeFile(originalPath, bytes, { mode: 0o600, flag: "wx" });
       const clean = await (options.scan ?? scanFile)(originalPath);
+      const sourceMime = sourceType(bytes);
+      let result: Awaited<ReturnType<typeof createPreview>>;
+      try {
+        result =
+          !clean || sourceMime
+            ? {
+                mime: sourceMime ?? "application/octet-stream",
+                preview: await sourcePlaceholder(),
+                previewMime: "image/jpeg",
+              }
+            : await (options.preview ?? createPreview)(bytes);
+      } catch (error) {
+        if (error instanceof CloudinaryPreviewError) throw error;
+        throw new HttpError(
+          400,
+          "Use a supported image, PDF, MP4, PSD, Blender or ZIP file",
+        );
+      }
       await writeFile(previewPath, result.preview, { mode: 0o600, flag: "wx" });
       const current = owned(req, true);
       if (current.files.length >= 10)
@@ -365,7 +464,7 @@ export async function buildApp(
         previewMime: result.previewMime,
         scan: clean ? "clean" : "quarantined",
         approved: false,
-        suppliedPreviewRequired: Boolean(sourceType(bytes)),
+        suppliedPreviewRequired: Boolean(sourceMime),
       });
       store.save(current);
       return reply.code(201).send({ handoff: current });
@@ -450,12 +549,36 @@ export async function buildApp(
       throw new HttpError(404, "File not found");
     uploads++;
     try {
-      const clean = await (options.scan ?? scanFile)(
-        join(directory, "originals", fileId),
-      );
+      const originalPath = join(directory, "originals", fileId);
+      const clean = await (options.scan ?? scanFile)(originalPath);
+      let result: Awaited<ReturnType<typeof createPreview>> | undefined;
+      let sourceMime: string | undefined;
+      if (clean) {
+        const bytes = await readFile(originalPath);
+        const current = owned(req, true).files.find(
+          (file) => file.id === fileId,
+        );
+        if (!current || hash(bytes) !== current.sha256)
+          throw new HttpError(409, "Original file changed during processing");
+        sourceMime = sourceType(bytes);
+        if (!sourceMime)
+          result = await (options.preview ?? createPreview)(bytes);
+      }
+      if (result) {
+        await writeFile(
+          join(directory, "previews", `${fileId}.jpg`),
+          result.preview,
+          { mode: 0o600 },
+        );
+      }
       const handoff = owned(req, true);
       const file = handoff.files.find((file) => file.id === fileId);
       if (!file) throw new HttpError(404, "File not found");
+      if (result) {
+        file.previewSha256 = hash(result.preview);
+        file.previewMime = result.previewMime;
+        file.mime = result.mime;
+      } else if (sourceMime) file.mime = sourceMime;
       file.scan = clean ? "clean" : "quarantined";
       file.approved = false;
       store.save(handoff);
@@ -551,13 +674,41 @@ export async function buildApp(
       clientLabel: _label,
       clientWallet: _wallet,
       ...publicData
-    } = handoff;
+    } = currentStatus(handoff);
+    const user = store.session(hash(req.cookies.handoff_session ?? ""));
+    const isApprovedClient = Boolean(
+      user &&
+      user.currency === handoff.currency &&
+      user.address === handoff.clientWallet,
+    );
+    const isCreator = Boolean(
+      user &&
+      user.currency === handoff.currency &&
+      user.address === handoff.creator,
+    );
     return {
       handoff: {
         ...publicData,
-        checkoutEnabled: Boolean(
-          options.sandbox || options.payments?.[handoff.currency],
-        ),
+        access: {
+          isCreator,
+          isApprovedClient,
+          requested: Boolean(
+            user &&
+            user.currency === handoff.currency &&
+            store.db
+              .prepare(
+                "SELECT wallet FROM requests WHERE handoff=? AND wallet=?",
+              )
+              .get(id, user.address),
+          ),
+          canCheckout:
+            isApprovedClient &&
+            !user?.scope &&
+            paymentCapabilities[handoff.currency].enabled &&
+            ["ready", "payment-pending"].includes(publicData.status) &&
+            Date.parse(handoff.deadline) > Date.now(),
+        },
+        checkoutEnabled: Boolean(paymentCapabilities[handoff.currency].enabled),
         downloadDays: 30,
       } satisfies PublicHandoff,
     };
@@ -604,7 +755,12 @@ export async function buildApp(
     const count = store.db
       .prepare("SELECT count(*) AS n FROM requests WHERE handoff=?")
       .get(id) as { n: number };
-    if (count.n >= 20)
+    if (
+      count.n >= 20 &&
+      !store.db
+        .prepare("SELECT wallet FROM requests WHERE handoff=? AND wallet=?")
+        .get(id, user.address)
+    )
       throw new HttpError(
         429,
         "Access requests are full. Contact the creator.",
@@ -647,7 +803,7 @@ export async function buildApp(
     store.save(handoff);
     return { handoff };
   });
-  payments(
+  const paymentService = payments(
     app,
     store,
     directory,
@@ -659,10 +815,17 @@ export async function buildApp(
     "CREATE TABLE IF NOT EXISTS deletions (handoff TEXT PRIMARY KEY, at INTEGER NOT NULL)",
   );
   let maintenance: Promise<void> | undefined;
+  let maintenanceHealthy = true;
   const sweep = () => {
     if (!maintenance && uploads === 0)
       maintenance = retain(store, directory)
-        .catch((error) => app.log.error(error))
+        .then(() => {
+          maintenanceHealthy = true;
+        })
+        .catch((error) => {
+          maintenanceHealthy = false;
+          app.log.error(error);
+        })
         .finally(() => {
           maintenance = undefined;
         });
@@ -671,7 +834,29 @@ export async function buildApp(
   retentionTimer.unref();
   app.addHook("onReady", async () => {
     sweep();
+    await maintenance;
   });
+  app.get(
+    "/api/ready",
+    { config: { rateLimit: false } },
+    async (_req, reply) => {
+      let dependencies: Record<string, boolean> = {};
+      try {
+        dependencies = options.readiness ? await options.readiness() : {};
+        store.db.prepare("SELECT 1").get();
+      } catch {
+        dependencies.storage = false;
+      }
+      const checks = {
+        storage: true,
+        retention: maintenanceHealthy,
+        payments: paymentService.healthy(),
+        ...dependencies,
+      };
+      const ok = Object.values(checks).every(Boolean);
+      return reply.code(ok ? 200 : 503).send({ ok, checks });
+    },
+  );
   app.addHook("onClose", async () => {
     clearInterval(retentionTimer);
     await maintenance;

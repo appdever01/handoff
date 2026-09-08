@@ -9,6 +9,7 @@ import type {
   Session,
   PaymentIntent,
   Receipt,
+  SupportTicket,
 } from "../packages/contracts/index.ts";
 
 export type ChainEvidence = {
@@ -70,13 +71,16 @@ export function payments(
   const idOf = (req: FastifyRequest) =>
     z.object({ id: z.string().uuid() }).parse(req.params).id;
   let reconciling = false;
+  let completedAt = 0;
+  let cycleFailed = false;
   async function reconcile() {
     if (reconciling) return;
     reconciling = true;
+    let failed = false;
     try {
       const rows = store.db
         .prepare(
-          "SELECT i.data FROM intents i LEFT JOIN entitlements e ON e.handoff=i.handoff WHERE e.handoff IS NULL",
+          "SELECT i.data FROM intents i LEFT JOIN entitlements e ON e.handoff=i.handoff LEFT JOIN deletions d ON d.handoff=i.handoff WHERE e.handoff IS NULL AND d.handoff IS NULL",
         )
         .all() as { data: string }[];
       for (const row of rows) {
@@ -86,8 +90,11 @@ export function payments(
           !adapter ||
           intent.network !== adapter.network ||
           intent.token !== adapter.token
-        )
+        ) {
+          failed = true;
+          cycleFailed = true;
           continue;
+        }
         try {
           const evidence = await adapter.find(intent);
           const eligible = evidence.filter(
@@ -165,13 +172,21 @@ export function payments(
               JSON.stringify(receipt),
             );
         } catch (error) {
+          failed = true;
+          cycleFailed = true;
           app.log.error(
             { err: error, intent: intent.id },
             "Payment reconciliation failed",
           );
         }
       }
+    } catch (error) {
+      failed = true;
+      cycleFailed = true;
+      app.log.error({ err: error }, "Payment reconciliation cycle failed");
     } finally {
+      cycleFailed = failed;
+      completedAt = Date.now();
       reconciling = false;
     }
   }
@@ -246,7 +261,8 @@ export function payments(
     const handoff = store.get(id);
     if (
       !handoff ||
-      ![handoff.creator, handoff.clientWallet].includes(user.address)
+      ![handoff.creator, handoff.clientWallet].includes(user.address) ||
+      handoff.currency !== user.currency
     )
       fail(404, "Receipt not found");
     return {
@@ -263,9 +279,9 @@ export function payments(
     const user = session(req);
     const rows = store.db
       .prepare(
-        "SELECT data FROM entitlements WHERE wallet=? ORDER BY rowid DESC",
+        "SELECT data FROM entitlements WHERE wallet=? AND json_extract(data, '$.currency')=? ORDER BY rowid DESC",
       )
-      .all(user.address) as { data: string }[];
+      .all(user.address, user.currency) as { data: string }[];
     return {
       purchases: rows.map((r) => {
         const receipt: Receipt = JSON.parse(r.data);
@@ -310,13 +326,36 @@ export function payments(
       .type("application/octet-stream")
       .send(bytes);
   });
+  app.get("/api/support", async (req) => {
+    const user = session(req);
+    const rows = store.db
+      .prepare(
+        "SELECT handoff,data FROM support WHERE wallet=? ORDER BY rowid DESC",
+      )
+      .all(user.address) as { handoff: string; data: string }[];
+    return {
+      tickets: rows.flatMap((row) => {
+        const handoff = store.get(row.handoff);
+        return handoff && handoff.currency === user.currency
+          ? [
+              {
+                ...(JSON.parse(row.data) as SupportTicket),
+                handoffId: handoff.id,
+                title: handoff.title,
+              },
+            ]
+          : [];
+      }),
+    };
+  });
   app.post("/api/support/:id", async (req) => {
     const user = session(req);
     const id = idOf(req);
     const handoff = store.get(id);
     if (
       !handoff ||
-      ![handoff.creator, handoff.clientWallet].includes(user.address)
+      ![handoff.creator, handoff.clientWallet].includes(user.address) ||
+      handoff.currency !== user.currency
     )
       fail(404, "Handoff not found");
     const data = z
@@ -329,7 +368,7 @@ export function payments(
       .prepare("SELECT count(*) n FROM support WHERE handoff=? AND wallet=?")
       .get(id, user.address) as { n: number };
     if (count.n >= 10) fail(429, "Support request limit reached");
-    const ticket = {
+    const ticket: SupportTicket = {
       ...data,
       id: randomUUID(),
       createdAt: Date.now(),
@@ -345,15 +384,19 @@ export function payments(
     const user = session(req);
     const id = idOf(req);
     const h = store.get(id);
-    if (!h || ![h.creator, h.clientWallet].includes(user.address))
+    if (
+      !h ||
+      ![h.creator, h.clientWallet].includes(user.address) ||
+      h.currency !== user.currency
+    )
       fail(404, "Handoff not found");
     return {
       tickets: (
         store.db
           .prepare(
-            "SELECT data FROM support WHERE handoff=? ORDER BY rowid DESC",
+            "SELECT data FROM support WHERE handoff=? AND wallet=? ORDER BY rowid DESC",
           )
-          .all(id) as { data: string }[]
+          .all(id, user.address) as { data: string }[]
       ).map((r) => JSON.parse(r.data)),
     };
   });
@@ -366,5 +409,9 @@ export function payments(
   app.addHook("onReady", async () => {
     void reconcile();
   });
-  return { reconcile, getReceipt };
+  return {
+    reconcile,
+    getReceipt,
+    healthy: () => !cycleFailed && Date.now() - completedAt < 120_000,
+  };
 }
