@@ -1,4 +1,33 @@
 export const workflow = {
+  sessionChanged:
+    "Your wallet session changed. Open this delivery again before paying.",
+  invalidIntent:
+    "The payment details are invalid. Refresh this delivery before paying.",
+  expiredIntent:
+    "The payment deadline has passed. Check payment status before contacting the creator.",
+  walletOnly: "Approve payment from your wallet session on your phone.",
+  retryWallet: "Open wallet again",
+  retryHelp:
+    "Check your wallet history first. Only try again if you cancelled or no payment was sent.",
+  openInWallet: "Open in Nimiq Pay",
+  approved: "Desktop approved. Return to the desktop to finish pairing.",
+  noDevices: "No paired desktops for this wallet.",
+  signInPurchases:
+    "Connect your wallet or pair this desktop to see your purchases.",
+  viewDelivery: "View delivery",
+  downloading: "Preparing download…",
+  requestHistory: "Saved requests",
+  noRequests: "No support requests yet.",
+  openRequest: "Open",
+  resolvedRequest: "Resolved",
+  refundReference: "Refund transaction",
+  receiptAmount: "Amount paid",
+  payer: "Paid by",
+  recipient: "Paid to",
+  paidAt: "Payment date",
+  pendingAccess: "Waiting for the creator to approve your wallet.",
+  purchaseSearch: "Search purchases",
+  noMatches: "No purchases match your search.",
   playPreview: "Play short preview",
   pausePreview: "Pause preview",
   switchTestnet: "Switch Nimiq Pay to testnet before paying.",

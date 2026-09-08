@@ -1,4 +1,10 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type FormEvent,
+} from "react";
 import { init } from "@nimiq/mini-app-sdk";
 import QRCode from "qrcode";
 import type {
@@ -7,9 +13,11 @@ import type {
   PaymentIntent,
   Receipt,
   Session,
+  SupportTicket,
 } from "@handoff/contracts";
-import { api } from "./lib";
+import { api, ApiError, atomicAmount, nimiqPayUrl } from "./lib";
 import { workflow as t } from "./workflow-en";
+import { supportStatusLabels } from "./support-en";
 const errorText = (error: unknown) =>
   error instanceof Error ? error.message : t.error;
 type Pair = {
@@ -46,10 +54,11 @@ export function Pairing({
     { id: string; role: string; expires: number }[]
   >([]);
   async function refresh() {
-    if (user)
+    if (user && !user.scope)
       setDevices((await api<{ devices: typeof devices }>("/devices")).devices);
   }
   useEffect(() => {
+    setDevices([]);
     void refresh().catch((e) => setError(errorText(e)));
     if (id && user)
       void api<{ pairing: Pair | null }>(`/pairings/${id}`)
@@ -62,12 +71,15 @@ export function Pairing({
   useEffect(() => {
     if (id || !pair) return;
     let stopped = false;
+    let polling = false;
     const timer = window.setInterval(() => {
       if (Date.now() >= pair.expires) {
         setMessage(t.expired);
         window.clearInterval(timer);
         return;
       }
+      if (polling) return;
+      polling = true;
       void api<{ user: Session }>(`/pairings/${pair.id}/redeem`, {
         method: "POST",
       })
@@ -78,7 +90,13 @@ export function Pairing({
             setPair(null);
           }
         })
-        .catch(() => {});
+        .catch((e) => {
+          if (!stopped && !(e instanceof ApiError && e.status === 409))
+            setError(errorText(e));
+        })
+        .finally(() => {
+          polling = false;
+        });
     }, 3000);
     return () => {
       stopped = true;
@@ -94,7 +112,9 @@ export function Pairing({
         body: JSON.stringify({ role }),
       });
       setPair(p);
-      setQr(await QRCode.toDataURL(p.url!, { width: 220, margin: 2 }));
+      setQr(
+        await QRCode.toDataURL(nimiqPayUrl(p.url!), { width: 220, margin: 2 }),
+      );
       setMessage(t.waiting);
     } catch (e) {
       setError(errorText(e));
@@ -109,9 +129,10 @@ export function Pairing({
     try {
       await api(`/pairings/${id}/approve`, {
         method: "POST",
-        body: JSON.stringify({ phrase }),
+        body: JSON.stringify({ phrase: phrase.trim().toLowerCase() }),
       });
-      setMessage(t.paired);
+      setMessage(t.approved);
+      setPair(null);
     } catch (e) {
       setError(errorText(e));
     } finally {
@@ -123,8 +144,16 @@ export function Pairing({
       <h1>{t.pair}</h1>
       <p>{t.pairHelp}</p>
       {id ? (
-        !user ? (
-          <p>{t.signIn}</p>
+        !user || user.scope ? (
+          <div>
+            <p>{t.signIn}</p>
+            <a
+              className="button secondary"
+              href={nimiqPayUrl(window.location.href)}
+            >
+              {t.openInWallet}
+            </a>
+          </div>
         ) : (
           pair && (
             <form onSubmit={approve}>
@@ -189,9 +218,10 @@ export function Pairing({
           {error}
         </p>
       )}
-      {user && (
+      {user && !user.scope && (
         <>
           <h2>{t.devices}</h2>
+          {!devices.length && <p>{t.noDevices}</p>}
           {devices.map((d) => (
             <p key={d.id}>
               {d.role === "upload" ? t.upload : t.download} ·{" "}
@@ -253,12 +283,30 @@ export function DemoBar({ connected }: { connected: (user: Session) => void }) {
   ) : null;
 }
 
-export async function walletPayment(intent: PaymentIntent) {
+export async function walletPayment(
+  intent: PaymentIntent,
+  isCurrent = () => true,
+) {
+  const requireCurrent = () => {
+    if (!isCurrent()) throw new Error(t.sessionChanged);
+  };
+  requireCurrent();
+  if (
+    !/^\d+$/.test(intent.units) ||
+    BigInt(intent.units) <= 0n ||
+    !Number.isFinite(intent.expiresAt) ||
+    !intent.reference
+  )
+    throw new Error(t.invalidIntent);
+  if (intent.expiresAt <= Date.now()) throw new Error(t.expiredIntent);
   if (intent.network === "local:simulation") {
     await api(`/demo/pay/${intent.id}`, { method: "POST" });
     return;
   }
   if (intent.currency === "NIM") {
+    if (intent.network !== "nimiq:testalbatross") throw new Error(t.testOnly);
+    if (BigInt(intent.units) > BigInt(Number.MAX_SAFE_INTEGER))
+      throw new Error(t.invalidIntent);
     const provider = await init({ timeout: 5000 });
     const result = (await provider.request({
       method: "getLatestBlock",
@@ -266,18 +314,35 @@ export async function walletPayment(intent: PaymentIntent) {
     })) as { data?: { network?: string }; network?: string };
     if ((result.data?.network ?? result.network) !== "TestAlbatross")
       throw new Error(t.switchTestnet);
+    requireCurrent();
     const accounts = await provider.listAccounts();
-    if (!Array.isArray(accounts) || !accounts.includes(intent.payer))
+    if (
+      !Array.isArray(accounts) ||
+      !accounts.some(
+        (address) =>
+          address.replace(/\s/g, "").toUpperCase() ===
+          intent.payer.replace(/\s/g, "").toUpperCase(),
+      )
+    )
       throw new Error(t.approvedWallet);
+    requireCurrent();
     const sent = await provider.sendBasicTransactionWithData({
       recipient: intent.recipient,
       value: Number(intent.units),
       data: intent.reference,
     });
-    if (typeof sent !== "string") throw new Error(t.error);
+    if (typeof sent !== "string" || !sent) throw new Error(t.error);
     return;
   }
   if (intent.network !== "eip155:80002") throw new Error(t.testOnly);
+  if (
+    ![intent.payer, intent.recipient, intent.token].every((address) =>
+      /^0x[0-9a-fA-F]{40}$/.test(address),
+    ) ||
+    !/^\d+$/.test(intent.reference) ||
+    BigInt(intent.units) >= 2n ** 256n
+  )
+    throw new Error(t.invalidIntent);
   const provider = (
     window as unknown as {
       ethereum?: {
@@ -298,13 +363,17 @@ export async function walletPayment(intent: PaymentIntent) {
   const accounts = (await provider.request({
     method: "eth_accounts",
   })) as string[];
-  if (!accounts.some((a) => a.toLowerCase() === intent.payer.toLowerCase()))
+  if (
+    !Array.isArray(accounts) ||
+    !accounts.some((a) => a.toLowerCase() === intent.payer.toLowerCase())
+  )
     throw new Error(t.approvedWallet);
   const data =
     "0xa9059cbb" +
     intent.recipient.slice(2).toLowerCase().padStart(64, "0") +
     BigInt(intent.units).toString(16).padStart(64, "0");
-  await provider.request({
+  requireCurrent();
+  const sent = await provider.request({
     method: "eth_sendTransaction",
     params: [
       {
@@ -316,6 +385,24 @@ export async function walletPayment(intent: PaymentIntent) {
       },
     ],
   });
+  if (typeof sent !== "string" || !sent) throw new Error(t.error);
+}
+
+export async function checkoutPayment(
+  handoffId: string,
+  isCurrent: () => boolean,
+  onIntent: (intent: PaymentIntent) => void,
+) {
+  const result = await api<{ intent: PaymentIntent; receipt: Receipt | null }>(
+    `/handoffs/${handoffId}/checkout`,
+    { method: "POST" },
+  );
+  if (!isCurrent()) return null;
+  if (!result.receipt) {
+    onIntent(result.intent);
+    await walletPayment(result.intent, isCurrent);
+  }
+  return isCurrent() ? result : null;
 }
 
 export function PaymentPanel({
@@ -332,63 +419,110 @@ export function PaymentPanel({
     intent: null,
     events: [],
   });
+  const [authorized, setAuthorized] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [enabled, setEnabled] = useState(false);
   const [demo, setDemo] = useState(false);
+  const current = useRef(0);
+  const paymentSession = useRef(0);
+  useLayoutEffect(() => {
+    paymentSession.current += 1;
+    setBusy(false);
+    return () => {
+      paymentSession.current += 1;
+    };
+  }, [user?.address, user?.currency, user?.scope, handoff.id]);
   async function refresh() {
-    if (user) setState(await api<ReceiptState>(`/receipts/${handoff.id}`));
+    if (!user) return;
+    const version = current.current;
+    const result = await api<ReceiptState>(`/receipts/${handoff.id}`);
+    if (current.current === version) {
+      setState(result);
+      setAuthorized(true);
+      setError("");
+    }
   }
   useEffect(() => {
-    void api<{ checkoutEnabled: boolean; sandbox: boolean }>("/health")
-      .then((r) => {
-        setEnabled(r.checkoutEnabled);
-        setDemo(r.sandbox);
-      })
-      .catch((e) => setError(errorText(e)));
-  }, []);
-  useEffect(() => {
-    if (!user) return;
     let active = true;
-    const check = () => {
-      void api<ReceiptState>(`/receipts/${handoff.id}`)
-        .then((r) => {
-          if (active) setState(r);
-        })
-        .catch(() => {});
-    };
-    check();
-    const timer = window.setInterval(check, 5000);
+    setEnabled(false);
+    void api<{ handoff: { checkoutEnabled: boolean } }>(`/public/${handoff.id}`)
+      .then((r) => {
+        if (active) setEnabled(r.handoff.checkoutEnabled);
+      })
+      .catch(() => {});
+    void api<{ sandbox: boolean }>("/health")
+      .then((r) => {
+        if (active) setDemo(r.sandbox);
+      })
+      .catch((e) => {
+        if (active) setError(errorText(e));
+      });
     return () => {
       active = false;
+    };
+  }, [handoff.id, handoff.status]);
+  useEffect(() => {
+    current.current += 1;
+    const version = current.current;
+    setState({ receipt: null, intent: null, events: [] });
+    setAuthorized(false);
+    setError("");
+    setMessage("");
+    if (!user || handoff.status === "draft") return;
+    let polling = false;
+    const check = async () => {
+      if (polling) return;
+      polling = true;
+      try {
+        const result = await api<ReceiptState>(`/receipts/${handoff.id}`);
+        if (version === current.current) {
+          setState(result);
+          setAuthorized(true);
+          setError("");
+        }
+      } catch (e) {
+        if (version === current.current) {
+          if (e instanceof ApiError && (e.status === 404 || e.status === 403)) {
+            setAuthorized(false);
+            setState({ receipt: null, intent: null, events: [] });
+          } else setError(errorText(e));
+        }
+      } finally {
+        polling = false;
+      }
+    };
+    void check();
+    const timer = window.setInterval(() => void check(), 5000);
+    return () => {
+      current.current += 1;
       window.clearInterval(timer);
     };
-  }, [user, handoff.id]);
+  }, [user?.address, user?.currency, user?.scope, handoff.id, handoff.status]);
   async function pay() {
+    const session = paymentSession.current;
+    const isCurrent = () => paymentSession.current === session;
     setError("");
     setBusy(true);
     setMessage(t.approval);
     try {
-      const result = await api<{
-        intent: PaymentIntent;
-        receipt: Receipt | null;
-      }>(`/handoffs/${handoff.id}/checkout`, { method: "POST" });
-      if (result.receipt) {
-        await refresh();
-        return;
-      }
-      setState((s) => ({ ...s, intent: result.intent }));
-      await walletPayment(result.intent);
-      setMessage(t.sent);
+      const result = await checkoutPayment(handoff.id, isCurrent, (intent) => {
+        setState((s) => ({ ...s, intent }));
+      });
+      if (!result || !isCurrent()) return;
+      if (!result.receipt) setMessage(t.sent);
       await refresh();
     } catch (e) {
-      setError(errorText(e));
-      setMessage(t.confirming);
+      if (isCurrent()) {
+        setError(errorText(e));
+        setMessage("");
+      }
     } finally {
-      setBusy(false);
+      if (isCurrent()) setBusy(false);
     }
   }
+
   return (
     <section className="workflow-panel">
       <p>{t.fees}</p>
@@ -399,21 +533,35 @@ export function PaymentPanel({
         />
       ) : (
         <>
-          <p className="notice">{enabled ? t.testOnly : t.unavailable}</p>
-          {!owner && user && enabled && (
-            <button
-              className="button primary full-width"
-              disabled={busy || Date.parse(handoff.deadline) <= Date.now()}
-              onClick={() => void pay()}
-            >
-              {demo ? t.simulate : t.pay}
-            </button>
+          <p className="notice">
+            {enabled ? (demo ? t.demo : t.testOnly) : t.unavailable}
+          </p>
+          {!owner && user && enabled && authorized && !user.scope && (
+            <>
+              <button
+                className="button primary full-width"
+                disabled={busy || Date.parse(handoff.deadline) <= Date.now()}
+                onClick={() => void pay()}
+              >
+                {state.intent ? t.retryWallet : demo ? t.simulate : t.pay}
+              </button>
+              {state.intent && <p>{t.retryHelp}</p>}
+            </>
           )}
           {state.intent && <p role="status">{t.confirming}</p>}
-          <p>{t.clientApproval}</p>
+          {!owner && !authorized && <p>{t.clientApproval}</p>}
+          {!owner && user?.scope && <p>{t.walletOnly}</p>}
+          {!owner && !user && (
+            <a
+              className="button secondary full-width"
+              href={nimiqPayUrl(window.location.href)}
+            >
+              {t.openInWallet}
+            </a>
+          )}
         </>
       )}
-      {user && (
+      {user && authorized && (
         <button
           className="button secondary"
           disabled={busy}
@@ -443,24 +591,68 @@ export function PaymentPanel({
           )}
         </>
       )}
-      {user && <Support id={handoff.id} />}
+      {user && authorized && (
+        <Support key={`${handoff.id}-${user.address}`} id={handoff.id} />
+      )}
     </section>
   );
 }
-function ReceiptView({
+export function ReceiptView({
   receipt,
   files,
 }: {
   receipt: Receipt;
   files: FileRecord[];
 }) {
+  const [downloading, setDownloading] = useState<string | null>(null);
+  const [error, setError] = useState("");
   const expired = receipt.expiresAt <= Date.now();
+  async function download(file: FileRecord) {
+    setDownloading(file.id);
+    setError("");
+    try {
+      const response = await fetch(
+        `/api/originals/${receipt.handoff}/${file.id}`,
+      );
+      if (!response.ok) {
+        const result = await response.json().catch(() => null);
+        throw new Error(result?.error ?? t.error);
+      }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = file.name;
+      document.body.append(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      setDownloading(null);
+    }
+  }
   return (
     <div className="receipt">
       <h3>{t.paid}</h3>
-      <p>{receipt.title}</p>
+      <p>
+        <a href={`/h/${receipt.handoff}`}>{receipt.title}</a>
+      </p>
+      <p>
+        {t.receiptAmount}:{" "}
+        <strong>
+          {atomicAmount(receipt.units, receipt.currency)} {receipt.currency}
+        </strong>
+      </p>
       <p className="wallet-address">
         {receipt.network} · {receipt.transaction}
+      </p>
+      <p className="wallet-address">
+        {t.recipient}: {receipt.recipient}
+      </p>
+      <p>
+        {t.paidAt}: {new Date(receipt.paidAt).toLocaleString()}
       </p>
       <p>
         {t.retention} {new Date(receipt.expiresAt).toLocaleString()}
@@ -469,15 +661,22 @@ function ReceiptView({
         <p>{t.expiredDownload}</p>
       ) : (
         files.map((f) => (
-          <a
+          <button
             className="button secondary full-width"
             key={f.id}
-            href={`/api/originals/${receipt.handoff}/${f.id}`}
-            download
+            disabled={downloading !== null}
+            onClick={() => void download(f)}
           >
-            {t.downloadOriginal}: {f.name}
-          </a>
+            {downloading === f.id
+              ? t.downloading
+              : `${t.downloadOriginal}: ${f.name}`}
+          </button>
         ))
+      )}
+      {error && (
+        <p className="error" role="alert">
+          {error}
+        </p>
       )}
     </div>
   );
@@ -488,10 +687,13 @@ export function Purchases({ user }: { user: Session | null }) {
   >([]);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
+  const [revision, setRevision] = useState(0);
+  const [search, setSearch] = useState("");
   useEffect(() => {
+    setItems([]);
+    setError("");
     setLoading(true);
     if (!user) {
-      setItems([]);
       setLoading(false);
       return;
     }
@@ -509,18 +711,46 @@ export function Purchases({ user }: { user: Session | null }) {
     return () => {
       active = false;
     };
-  }, [user]);
+  }, [user?.address, user?.currency, revision]);
+  const filtered = items.filter(({ receipt }) =>
+    `${receipt.title} ${receipt.currency} ${receipt.transaction}`
+      .toLowerCase()
+      .includes(search.trim().toLowerCase()),
+  );
   return (
     <section className="panel workflow-panel">
-      <h1>{t.purchases}</h1>
+      <div className="section-heading">
+        <h1>{t.purchases}</h1>
+        {user && (
+          <button
+            className="button secondary"
+            disabled={loading}
+            onClick={() => setRevision((r) => r + 1)}
+          >
+            {t.refresh}
+          </button>
+        )}
+      </div>
+      {items.length > 0 && (
+        <label>
+          {t.purchaseSearch}
+          <input
+            type="search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </label>
+      )}
       {loading ? (
         <p role="status">{t.loading}</p>
-      ) : items.length ? (
-        items.map((item) => (
+      ) : !user ? (
+        <p>{t.signInPurchases}</p>
+      ) : filtered.length ? (
+        filtered.map((item) => (
           <ReceiptView key={item.receipt.handoff} {...item} />
         ))
       ) : (
-        <p>{t.empty}</p>
+        !error && <p>{items.length ? t.noMatches : t.empty}</p>
       )}
       {error && <p role="alert">{error}</p>}
     </section>
@@ -530,25 +760,46 @@ function Support({ id }: { id: string }) {
   const [message, setMessage] = useState("");
   const [kind, setKind] = useState("access");
   const [status, setStatus] = useState("");
+  const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [tickets, setTickets] = useState<SupportTicket[]>([]);
+  const [opened, setOpened] = useState(false);
+  const kindLabel = { access: t.accessIssue, refund: t.refund, other: t.other };
+  useEffect(() => {
+    if (!opened) return;
+    let active = true;
+    void api<{ tickets: SupportTicket[] }>(`/support/${id}`)
+      .then((r) => {
+        if (active) setTickets(r.tickets);
+      })
+      .catch((e) => {
+        if (active) setError(errorText(e));
+      });
+    return () => {
+      active = false;
+    };
+  }, [id, opened]);
   async function submit(e: FormEvent) {
     e.preventDefault();
     setBusy(true);
+    setError("");
+    setStatus("");
     try {
-      await api(`/support/${id}`, {
+      const result = await api<{ ticket: SupportTicket }>(`/support/${id}`, {
         method: "POST",
-        body: JSON.stringify({ kind, message }),
+        body: JSON.stringify({ kind, message: message.trim() }),
       });
+      setTickets((items) => [result.ticket, ...items]);
       setStatus(t.saved);
       setMessage("");
     } catch (e) {
-      setStatus(errorText(e));
+      setError(errorText(e));
     } finally {
       setBusy(false);
     }
   }
   return (
-    <details>
+    <details onToggle={(event) => setOpened(event.currentTarget.open)}>
       <summary>{t.support}</summary>
       <p>{t.supportNote}</p>
       <form onSubmit={submit}>
@@ -569,11 +820,32 @@ function Support({ id }: { id: string }) {
             onChange={(e) => setMessage(e.target.value)}
           />
         </label>
-        <button className="button secondary" disabled={busy}>
+        <button className="button secondary" disabled={busy || !message.trim()}>
           {t.sendRequest}
         </button>
-        <p role="status">{status}</p>
+        {status && <p role="status">{status}</p>}
+        {error && (
+          <p role="alert" className="error">
+            {error}
+          </p>
+        )}
       </form>
+      <h3>{t.requestHistory}</h3>
+      {!tickets.length && <p>{t.noRequests}</p>}
+      {tickets.map((ticket) => (
+        <article key={ticket.id}>
+          <strong>
+            {kindLabel[ticket.kind]} · {supportStatusLabels[ticket.status]}
+          </strong>
+          <p>{ticket.message}</p>
+          <p>{new Date(ticket.createdAt).toLocaleString()}</p>
+          {ticket.refundTransaction && (
+            <p className="wallet-address">
+              {t.refundReference}: {ticket.refundTransaction}
+            </p>
+          )}
+        </article>
+      ))}
     </details>
   );
 }

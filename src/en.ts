@@ -1,6 +1,36 @@
 export const en = {
   skip: "Skip to content",
-  pilot: "PILOT BUILD",
+  refresh: "Refresh",
+  openNimiq: "Open in Nimiq Pay",
+  checkingService: "Checking service…",
+  serviceUnavailable: "Service unavailable · retrying",
+  sandboxStatus: "Local sandbox · simulated payments",
+  testCheckoutStatus: "Test-network checkout available",
+  checkoutOffStatus: "Wallet mode · checkout unavailable",
+  requests: "Access requests",
+  requestsHelp:
+    "Review the wallets requesting access to your deliveries. Confirm each address with your client before approving it.",
+  reviewRequest: "Review request",
+  settings: "Wallet & account",
+  supportInbox: "Support requests",
+  sessionAccess: "Session access",
+  uploadAccess: "Create and manage handoffs",
+  downloadAccess: "Purchased downloads only",
+  fullAccess: "Wallet session",
+  downloadOnly:
+    "This paired session is for downloads. Open Purchases to retrieve your files, or sign out and connect a creator wallet.",
+  connectWorkspace: "Connect your wallet to see your handoffs",
+  connectWorkspaceBody:
+    "Your saved deliveries, client requests, and payments appear here after you sign in.",
+  loadingWorkspace: "Loading your workspace…",
+  copyManually: "Copy this link to share it with your client.",
+  deleteDraft: "Delete draft",
+  deleteDraftHelp:
+    "This permanently deletes the unpublished draft and its uploaded files.",
+  draftDeleted: "Draft deleted",
+  previewUnavailable: "Preview not ready",
+  previewUnavailableBody:
+    "A clean scan and a prepared preview are required before this file can be shown.",
   removeFile: "Remove selected file",
   rescan: "Retry malware scan",
   brand: "handoff",
@@ -111,7 +141,7 @@ export const en = {
   downloadWindow:
     "Downloads remain available for 30 days after payment verification. Unpaid files expire after the deadline.",
   creatorTools: "Prepare your delivery",
-  addFiles: "Add original images",
+  addFiles: "Add original files",
   fileLimit:
     "Up to 10 files, 15 MB each. PDF previews show the first 3 pages; video previews show up to 12 seconds without sound. PSD, Blender and ZIP originals require a supplied preview.",
   uploading: "Preparing your preview…",
@@ -139,6 +169,11 @@ export const en = {
   bindTitle: "Approve this client?",
   bindHelp:
     "Check this address with your client in your existing conversation. It cannot be replaced after approval.",
+  accessApproved: "Your wallet is approved for this delivery.",
+  accessBound:
+    "This delivery is assigned to another wallet. Connect the approved wallet to continue.",
+  signInForAccess:
+    "Connect the approved client wallet to access this delivery.",
   requestAccess: "Request access with my wallet",
   requestSent: "Access requested. Ask the creator to approve your wallet.",
   approvalHint:
@@ -147,7 +182,7 @@ export const en = {
   loading: "Loading your handoff…",
   purchasesTitle: "The work you’ve made yours.",
   purchasesBody:
-    "Your paid deliveries will appear here once payments are available.",
+    "Your verified purchases and available original files appear here.",
   purchasesEmpty: "Nothing to unpack just yet.",
   purchasesHelp:
     "Have a delivery link? Open it to review the work and request access.",
@@ -163,11 +198,11 @@ export const en = {
     ],
     [
       "Get paid. Hand it over.",
-      "Once payment verification is live, finalized payment will unlock the exact original files.",
+      "The backend verifies payment and finality before unlocking the exact original files.",
     ],
   ],
   howNote:
-    "This build supports preparation and previews. Live payments and downloads are still being developed.",
+    "Payment availability depends on the connected network and verified checkout configuration. Never send a payment outside the checkout instructions.",
   support: "Keep the conversation going",
   supportBody:
     "For revisions, payment questions, or refund requests, contact the creator in your existing conversation.",

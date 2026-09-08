@@ -1,0 +1,35 @@
+import type { SupportTicket } from "@handoff/contracts";
+
+export const supportText = {
+  title: "Support requests",
+  description:
+    "Track the help and refund requests you have saved for your deliveries.",
+  signIn: "Connect your wallet to see your requests.",
+  refresh: "Refresh requests",
+  loading: "Loading requests…",
+  search: "Search support requests",
+  status: "Filter by status",
+  all: "All requests",
+  open: "Open",
+  resolved: "Resolved",
+  declined: "Declined",
+  refundRecorded: "Refund reference recorded",
+  access: "File access",
+  refund: "Refund",
+  other: "Other",
+  empty: "No support requests yet.",
+  emptyHelp: "Open a delivery to save a help or refund request.",
+  noMatches: "No requests match your filters.",
+  delivery: "Open delivery",
+  reference: "Refund reference",
+  refundNote:
+    "A recorded reference does not confirm a refund. Check it with the creator.",
+  error: "Could not load your requests. Try again.",
+} as const;
+
+export const supportStatusLabels: Record<SupportTicket["status"], string> = {
+  open: supportText.open,
+  resolved: supportText.resolved,
+  "refund-recorded": supportText.refundRecorded,
+  declined: supportText.declined,
+};

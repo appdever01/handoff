@@ -12,6 +12,11 @@ import {
   ArrowUpRight,
   Check,
   CheckCheck,
+  Clock3,
+  Inbox,
+  RefreshCw,
+  Settings,
+  Trash2,
   ChevronDown,
   CircleHelp,
   Copy,
@@ -36,9 +41,13 @@ import {
   type Currency,
   type DraftInput,
   type Handoff,
+  type Health,
+  type PublicHandoff,
+  type AccessRequest,
   type Session,
 } from "@handoff/contracts";
 import { en } from "./en";
+import { SupportInbox } from "./SupportInbox";
 import {
   api,
   connect,
@@ -46,6 +55,7 @@ import {
   formatBytes,
   formatDate,
   shortAddress,
+  nimiqPayUrl,
 } from "./lib";
 import {
   DemoBar,
@@ -183,6 +193,9 @@ function WalletModal({
   return (
     <Modal title={en.connectTitle} close={close}>
       <p className="muted">{en.connectBody}</p>
+      <a className="button secondary" href={nimiqPayUrl(location.href)}>
+        {en.openNimiq}
+      </a>
       <div className="wallet-options">
         <button disabled={busy} onClick={() => void signIn("NIM")}>
           <span className="coin nim">N</span>
@@ -379,15 +392,37 @@ function Delivery({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [wallets, setWallets] = useState<string[]>([]);
+  const [requested, setRequested] = useState(false);
+  const clientAccess = (
+    handoff as Handoff & Partial<Pick<PublicHandoff, "access">>
+  ).access;
+  useEffect(() => {
+    setRequested(false);
+  }, [handoff.id, user?.address, user?.currency]);
   const [binding, setBinding] = useState("");
+  const [shareLink, setShareLink] = useState("");
   const [selected, setSelected] = useState(0);
   const input = useRef<HTMLInputElement>(null);
   useEffect(() => {
-    if (owner && handoff.status !== "draft")
+    if (!owner || handoff.status === "draft" || handoff.clientWallet) return;
+    let active = true;
+    const refresh = () =>
       void api<{ wallets: string[] }>(`/handoffs/${handoff.id}/requests`)
-        .then((data) => setWallets(data.wallets))
-        .catch((error) => setError(messageOf(error)));
-  }, [owner, handoff.id, handoff.status]);
+        .then((data) => {
+          if (active) setWallets(data.wallets);
+        })
+        .catch((error) => {
+          if (active) setError(messageOf(error));
+        });
+    refresh();
+    const timer = window.setInterval(() => {
+      if (!document.hidden) refresh();
+    }, 15000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [owner, handoff.id, handoff.status, handoff.clientWallet]);
   async function action(path: string, data?: unknown, method = "POST") {
     setBusy(true);
     setError("");
@@ -434,6 +469,7 @@ function Delivery({
     setError("");
     try {
       await api(`/public/${handoff.id}/request-access`, { method: "POST" });
+      setRequested(true);
       notify(en.requestSent);
     } catch (error) {
       setError(messageOf(error));
@@ -446,10 +482,11 @@ function Delivery({
       await navigator.clipboard.writeText(`${location.origin}/h/${handoff.id}`);
       notify(en.copied);
     } catch {
-      setError(`${location.origin}/h/${handoff.id}`);
+      setShareLink(`${location.origin}/h/${handoff.id}`);
     }
   }
   const file = handoff.files[selected];
+  const previewReady = file?.scan === "clean" && Boolean(file.previewSha256);
   return (
     <>
       <div className="delivery-heading">
@@ -475,12 +512,12 @@ function Delivery({
           <div className="preview-frame">
             {example ? (
               <Artwork kind={handoff.id} />
-            ) : file?.previewMime === "image/gif" ? (
+            ) : previewReady && file?.previewMime === "image/gif" ? (
               <VideoPreview
                 src={`/api/previews/${handoff.id}/${file.id}`}
                 label={`${en.previewOnly}: ${file.name}`}
               />
-            ) : file ? (
+            ) : previewReady && file ? (
               <img
                 src={`/api/previews/${handoff.id}/${file.id}`}
                 alt={`${en.previewOnly}: ${file.name}`}
@@ -488,8 +525,8 @@ function Delivery({
             ) : (
               <div className="empty-preview">
                 <FileImage size={38} />
-                <h3>{en.noFiles}</h3>
-                <p>{en.noFilesBody}</p>
+                <h3>{file ? en.previewUnavailable : en.noFiles}</h3>
+                <p>{file ? en.previewUnavailableBody : en.noFilesBody}</p>
               </div>
             )}
             <div className="preview-caption">
@@ -546,7 +583,9 @@ function Delivery({
           <section className="checkout-card">
             <span className="eyebrow">{en.amount}</span>
             <p className="price">
-              {new Intl.NumberFormat("en").format(Number(handoff.amount))}{" "}
+              {new Intl.NumberFormat("en", { maximumFractionDigits: 6 }).format(
+                Number(handoff.amount),
+              )}{" "}
               <span>{handoff.currency}</span>
             </p>
             <div className="network">
@@ -561,22 +600,35 @@ function Delivery({
             <p className="field-note">{en.creator}</p>
             <p className="wallet-address">{handoff.creator}</p>
             <p className="field-note">{en.creatorLabelNote}</p>
-            {!example && (
+            {!example && handoff.status !== "draft" && (
               <PaymentPanel handoff={handoff} user={user} owner={owner} />
             )}
-            {!owner && !example && (
-              <>
-                <p className="field-note">{en.approvalHint}</p>
-                <button
-                  className="button secondary full-width"
-                  disabled={busy}
-                  onClick={() => void requestAccess()}
-                >
-                  {en.requestAccess}
-                  <ArrowRight size={16} />
-                </button>
-              </>
-            )}
+            {!owner &&
+              !example &&
+              handoff.status !== "draft" &&
+              (clientAccess?.isApprovedClient ? (
+                <p className="notice">{en.accessApproved}</p>
+              ) : handoff.status !== "awaiting-client" ? (
+                <p className="field-note">
+                  {user ? en.accessBound : en.signInForAccess}
+                </p>
+              ) : requested || clientAccess?.requested ? (
+                <p className="notice" role="status">
+                  {en.requestSent}
+                </p>
+              ) : (
+                <>
+                  <p className="field-note">{en.approvalHint}</p>
+                  <button
+                    className="button secondary full-width"
+                    disabled={busy}
+                    onClick={() => void requestAccess()}
+                  >
+                    {en.requestAccess}
+                    <ArrowRight size={16} />
+                  </button>
+                </>
+              ))}
           </section>
           {owner && (
             <section className="panel tools-panel">
@@ -655,7 +707,12 @@ function Delivery({
                     disabled={
                       busy ||
                       !handoff.files.length ||
-                      handoff.files.some((f) => f.scan !== "clean")
+                      handoff.files.some(
+                        (f) =>
+                          f.scan !== "clean" ||
+                          !f.previewSha256 ||
+                          f.suppliedPreviewRequired,
+                      )
                     }
                     onClick={() =>
                       void action("approve-previews", {
@@ -729,6 +786,18 @@ function Delivery({
           {error}
         </p>
       )}
+      {shareLink && (
+        <Modal title={en.share} close={() => setShareLink("")}>
+          <p>{en.copyManually}</p>
+          <input
+            className="share-link-input"
+            value={shareLink}
+            readOnly
+            onFocus={(event) => event.currentTarget.select()}
+            aria-label={en.share}
+          />
+        </Modal>
+      )}
       {binding && (
         <Modal title={en.bindTitle} close={() => setBinding("")}>
           <p>{en.bindHelp}</p>
@@ -746,11 +815,224 @@ function Delivery({
   );
 }
 
+export function HandoffCard({
+  handoff: h,
+  open,
+  share,
+  remove,
+}: {
+  handoff: Handoff;
+  open: () => void;
+  share: () => void;
+  remove: () => void;
+}) {
+  return (
+    <article className="project-card">
+      <button
+        className="project-open"
+        onClick={open}
+        aria-label={`${en.open}: ${h.title}`}
+      >
+        {h.files[0]?.previewMime === "image/gif" ? (
+          <div className="blank-cover">
+            <FileImage size={38} />
+          </div>
+        ) : h.files[0]?.scan === "clean" && h.files[0]?.previewSha256 ? (
+          <div className="actual-cover">
+            <img src={`/api/previews/${h.id}/${h.files[0].id}`} alt="" />
+          </div>
+        ) : (
+          <div className="blank-cover">
+            <FolderClosed size={38} />
+            <span>{statuses[h.status]}</span>
+          </div>
+        )}
+        <div className="card-content">
+          <div className="card-topline">
+            <span className={`status-pill ${h.status}`}>
+              <span />
+              {statuses[h.status]}
+            </span>
+            <span className="card-file-count">
+              <FileImage size={13} />
+              {h.files.length} {en.files}
+            </span>
+          </div>
+          <h3>{h.title}</h3>
+          <p className="card-client">
+            {en.for} <span>{h.clientLabel}</span>
+          </p>
+          <div className="card-bottom">
+            <strong>
+              {new Intl.NumberFormat("en", {
+                maximumFractionDigits: 6,
+              }).format(Number(h.amount))}
+              <span>{h.currency}</span>
+            </strong>
+            <span className="card-open" aria-label={en.open}>
+              <ArrowUpRight size={19} />
+            </span>
+          </div>
+        </div>
+      </button>
+      <div className="card-actions">
+        <span className="field-note">
+          {en.lastUpdated} {formatDate(h.createdAt)}
+        </span>
+        {h.status !== "draft" ? (
+          <button
+            className="button secondary"
+            onClick={share}
+            aria-label={`${en.share}: ${h.title}`}
+          >
+            <Copy size={15} />
+            {en.share}
+          </button>
+        ) : (
+          <button
+            className="icon-button"
+            onClick={remove}
+            aria-label={`${en.deleteDraft}: ${h.title}`}
+          >
+            <Trash2 size={16} />
+          </button>
+        )}
+      </div>
+    </article>
+  );
+}
+
+function RuntimeStatus({ revision }: { revision: number }) {
+  const [health, setHealth] = useState<Health>();
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    let active = true;
+    void api<Health>("/health")
+      .then((data) => {
+        if (active) {
+          setHealth(data);
+          setFailed(false);
+        }
+      })
+      .catch(() => {
+        if (active) setFailed(true);
+      });
+    return () => {
+      active = false;
+    };
+  }, [revision]);
+  return (
+    <span role="status">
+      {failed
+        ? en.serviceUnavailable
+        : !health
+          ? en.checkingService
+          : health.sandbox
+            ? en.sandboxStatus
+            : health.checkoutEnabled
+              ? en.testCheckoutStatus
+              : en.checkoutOffStatus}
+    </span>
+  );
+}
+
+function AccessRequests({
+  user,
+  revision,
+  navigate,
+  signIn,
+}: {
+  user: Session | null;
+  revision: number;
+  navigate: (path: string) => void;
+  signIn: () => void;
+}) {
+  const [requests, setRequests] = useState<AccessRequest[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    setRequests([]);
+    setLoaded(false);
+    setError("");
+  }, [user]);
+  useEffect(() => {
+    if (!user || user.scope === "download") return;
+    let active = true;
+    void api<{ requests: typeof requests }>("/access-requests")
+      .then((data) => {
+        if (active) {
+          setRequests(data.requests);
+          setError("");
+        }
+      })
+      .catch((error) => {
+        if (active) setError(messageOf(error));
+      })
+      .finally(() => {
+        if (active) setLoaded(true);
+      });
+    return () => {
+      active = false;
+    };
+  }, [user, revision]);
+  return (
+    <section className="panel requests-panel">
+      <h1>{en.requests}</h1>
+      <p className="muted">{en.requestsHelp}</p>
+      {!user ? (
+        <button className="button primary" onClick={signIn}>
+          {en.wallet}
+        </button>
+      ) : user.scope === "download" ? (
+        <p>{en.downloadOnly}</p>
+      ) : (
+        <>
+          {!loaded && <p role="status">{en.loadingWorkspace}</p>}
+          {error && (
+            <p className="error" role="alert">
+              {error}
+            </p>
+          )}
+          {loaded && !error && !requests.length && (
+            <p className="notice">{en.noRequests}</p>
+          )}
+          {requests.map((request) => (
+            <div
+              className="request-list-row"
+              key={`${request.handoffId}-${request.wallet}`}
+            >
+              <div>
+                <h3>{request.title}</h3>
+                <p className="wallet-address">{request.wallet}</p>
+              </div>
+              <button
+                className="button secondary"
+                onClick={() => navigate(`/draft/${request.handoffId}`)}
+              >
+                {en.reviewRequest}
+                <ArrowRight size={16} />
+              </button>
+            </div>
+          ))}
+        </>
+      )}
+    </section>
+  );
+}
+
 export function App() {
   const [path, setPath] = useState(location.pathname);
   const [user, setUser] = useState<Session | null>(null);
   const [handoffs, setHandoffs] = useState<Handoff[]>([]);
   const [loaded, setLoaded] = useState(false);
+  const [listLoaded, setListLoaded] = useState(false);
+  const [revision, setRevision] = useState(0);
+  const [listError, setListError] = useState("");
+  const [sessionError, setSessionError] = useState("");
+  const [shareLink, setShareLink] = useState("");
+  const [deleting, setDeleting] = useState<Handoff>();
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
   const [walletOpen, setWalletOpen] = useState(false);
   const [draftOpen, setDraftOpen] = useState(false);
   const [editing, setEditing] = useState<Handoff>();
@@ -782,10 +1064,17 @@ export function App() {
     let active = true;
     void api<{ user: Session | null }>("/session")
       .then((data) => {
-        if (active) setUser(data.user);
+        if (active) {
+          setUser((current) =>
+            JSON.stringify(current) === JSON.stringify(data.user)
+              ? current
+              : data.user,
+          );
+          setSessionError("");
+        }
       })
       .catch((error) => {
-        if (active) setError(messageOf(error));
+        if (active) setSessionError(messageOf(error));
       })
       .finally(() => {
         if (active) setLoaded(true);
@@ -793,27 +1082,57 @@ export function App() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [revision]);
+  useEffect(() => {
+    setHandoffs([]);
+    setSelected(undefined);
+    setListLoaded(false);
+    setListError("");
+  }, [user]);
   useEffect(() => {
     let active = true;
     if (user && user.scope !== "download")
       void api<{ handoffs: Handoff[] }>("/handoffs")
         .then((data) => {
-          if (active) setHandoffs(data.handoffs);
+          if (active) {
+            setHandoffs(data.handoffs);
+            setListError("");
+          }
         })
         .catch((error) => {
-          if (active) setError(messageOf(error));
+          if (active) setListError(messageOf(error));
+        })
+        .finally(() => {
+          if (active) setListLoaded(true);
         });
-    else setHandoffs([]);
+    else {
+      setHandoffs([]);
+      setListLoaded(true);
+    }
     return () => {
       active = false;
     };
-  }, [user]);
+  }, [user, revision]);
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      if (!document.hidden) setRevision((value) => value + 1);
+    }, 15000);
+    const refresh = () => {
+      if (!document.hidden) setRevision((value) => value + 1);
+    };
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", refresh);
+    };
+  }, []);
   useEffect(() => {
     if (!loaded) return;
     const parts = path.split("/");
     if (parts[1] === "example") {
-      setSelected(samples.find((h) => h.id === parts[2]));
+      const sample = samples.find((h) => h.id === parts[2]);
+      setSelected(sample);
+      if (!sample) setError(en.expired);
       return;
     }
     if (!["h", "draft"].includes(parts[1]) || !parts[2]) return;
@@ -823,18 +1142,26 @@ export function App() {
     )
       .then(async (data) => {
         const result =
-          parts[1] === "h" && user?.address === data.handoff.creator
+          parts[1] === "h" &&
+          user?.scope !== "download" &&
+          user?.address === data.handoff.creator
             ? await api<{ handoff: Handoff }>(`/handoffs/${parts[2]}`)
             : data;
-        if (requestVersion.current === version) setSelected(result.handoff);
+        if (requestVersion.current === version) {
+          setSelected(result.handoff);
+          setError("");
+        }
       })
       .catch((error) => {
-        if (requestVersion.current === version) setError(messageOf(error));
+        if (requestVersion.current === version) {
+          setSelected(undefined);
+          setError(messageOf(error));
+        }
       });
     return () => {
       requestVersion.current++;
     };
-  }, [path, loaded, user]);
+  }, [path, loaded, user, revision]);
   useEffect(() => {
     if (!toast) return;
     const timer = window.setTimeout(() => setToast(""), 5000);
@@ -849,6 +1176,10 @@ export function App() {
     );
   }
   function newDraft() {
+    if (user?.scope === "download") {
+      navigate("/purchases");
+      return;
+    }
     setEditing(undefined);
     setDraftOpen(true);
   }
@@ -861,9 +1192,43 @@ export function App() {
       setError(messageOf(error));
     }
   }
-  const isExample = !user;
-  const items = isExample ? samples : handoffs;
-  const filtered = filterHandoffs(items, filter, search, sort);
+  async function copyLink(handoff: Handoff) {
+    const link = `${location.origin}/h/${handoff.id}`;
+    try {
+      await navigator.clipboard.writeText(link);
+      setToast(en.copied);
+    } catch {
+      setShareLink(link);
+    }
+  }
+  async function deleteDraft() {
+    if (!deleting) return;
+    setDeleteBusy(true);
+    setDeleteError("");
+    try {
+      await api(`/handoffs/${deleting.id}`, { method: "DELETE" });
+      setHandoffs((items) => items.filter((item) => item.id !== deleting.id));
+      setDeleting(undefined);
+      setToast(en.draftDeleted);
+    } catch (error) {
+      setDeleteError(messageOf(error));
+    } finally {
+      setDeleteBusy(false);
+    }
+  }
+  const items = handoffs;
+  const sectionFilter =
+    (
+      {
+        "/drafts": "draft",
+        "/awaiting-client": "awaiting-client",
+        "/ready": "ready",
+        "/confirming": "payment-pending",
+        "/paid": "paid",
+      } as Record<string, string>
+    )[path] ?? "all";
+  const activeFilter = sectionFilter === "all" ? filter : sectionFilter;
+  const filtered = filterHandoffs(items, activeFilter, search, sort);
   const detail = /^\/(h|draft|example)\//.test(path);
   const page = detail
     ? en.preview
@@ -871,7 +1236,17 @@ export function App() {
       ? en.purchases
       : path === "/how-it-works"
         ? en.howItWorks
-        : en.handoffs;
+        : path === "/requests"
+          ? en.requests
+          : path === "/support"
+            ? en.supportInbox
+            : path === "/settings"
+              ? en.settings
+              : path.startsWith("/pair")
+                ? workflow.pair
+                : sectionFilter !== "all"
+                  ? statuses[sectionFilter as keyof typeof statuses]
+                  : en.handoffs;
   return (
     <div className="app-shell">
       <a className="skip-link" href="#main">
@@ -893,9 +1268,7 @@ export function App() {
         <div className="workspace-label">{en.workspace}</div>
         <nav aria-label={en.workspace}>
           <button
-            className={
-              page === en.handoffs || detail ? "nav-item active" : "nav-item"
-            }
+            className={path === "/" || detail ? "nav-item active" : "nav-item"}
             onClick={() => navigate("/")}
           >
             <FolderClosed size={19} />
@@ -908,6 +1281,53 @@ export function App() {
           >
             <Package size={19} />
             {en.purchases}
+          </button>
+          {(
+            [
+              ["/drafts", en.drafts, FileImage, "draft"],
+              ["/awaiting-client", en.awaiting, Clock3, "awaiting-client"],
+              ["/ready", en.ready, Wallet, "ready"],
+              [
+                "/confirming",
+                workflow.pendingStatus,
+                Clock3,
+                "payment-pending",
+              ],
+              ["/paid", workflow.paidStatus, CheckCheck, "paid"],
+            ] as const
+          ).map(([route, label, Icon, status]) => (
+            <button
+              key={String(route)}
+              className={path === route ? "nav-item active" : "nav-item"}
+              onClick={() => navigate(String(route))}
+            >
+              <Icon size={18} />
+              {String(label)}
+              <span className="nav-count">
+                {items.filter((item) => item.status === status).length}
+              </span>
+            </button>
+          ))}
+          <button
+            className={path === "/requests" ? "nav-item active" : "nav-item"}
+            onClick={() => navigate("/requests")}
+          >
+            <Inbox size={18} />
+            {en.requests}
+          </button>
+          <button
+            className={path === "/support" ? "nav-item active" : "nav-item"}
+            onClick={() => navigate("/support")}
+          >
+            <CircleHelp size={18} />
+            {en.supportInbox}
+          </button>
+          <button
+            className={path === "/settings" ? "nav-item active" : "nav-item"}
+            onClick={() => navigate("/settings")}
+          >
+            <Settings size={18} />
+            {en.settings}
           </button>
         </nav>
         <div className="sidebar-bottom">
@@ -943,10 +1363,6 @@ export function App() {
             >
               {workflow.pair}
             </button>
-            <span className="pilot-pill">
-              <span />
-              {en.pilot}
-            </span>
             {user ? (
               <>
                 <span className="connected-address">
@@ -992,7 +1408,11 @@ export function App() {
                     key={selected.id}
                     handoff={selected}
                     example={path.startsWith("/example/")}
-                    owner={Boolean(user && user.address === selected.creator)}
+                    owner={Boolean(
+                      user &&
+                      user.scope !== "download" &&
+                      user.address === selected.creator,
+                    )}
                     user={user}
                     update={update}
                     edit={() => {
@@ -1013,6 +1433,63 @@ export function App() {
               </>
             ) : path === "/purchases" ? (
               <Purchases user={user} />
+            ) : path === "/support" ? (
+              <SupportInbox user={user} navigate={navigate} />
+            ) : path === "/requests" ? (
+              <AccessRequests
+                user={user}
+                revision={revision}
+                navigate={navigate}
+                signIn={() => setWalletOpen(true)}
+              />
+            ) : path === "/settings" ? (
+              <section className="panel account-panel">
+                <h1>{en.settings}</h1>
+                {user ? (
+                  <>
+                    <p className="muted">{en.walletCurrency}</p>
+                    <h3>{en.creator}</h3>
+                    <p className="wallet-address">{user.address}</p>
+                    <p>
+                      {en.currency}: <strong>{user.currency}</strong>
+                    </p>
+                    <p>
+                      {en.sessionAccess}:{" "}
+                      <strong>
+                        {user.scope === "upload"
+                          ? en.uploadAccess
+                          : user.scope === "download"
+                            ? en.downloadAccess
+                            : en.fullAccess}
+                      </strong>
+                    </p>
+                    <div className="account-actions">
+                      <button
+                        className="button secondary"
+                        onClick={() => navigate("/pair")}
+                      >
+                        {workflow.pair}
+                      </button>
+                      <button
+                        className="button secondary"
+                        onClick={() => void logout()}
+                      >
+                        {en.signOut}
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <p>{en.connectWorkspace}</p>
+                    <button
+                      className="button primary"
+                      onClick={() => setWalletOpen(true)}
+                    >
+                      {en.wallet}
+                    </button>
+                  </>
+                )}
+              </section>
             ) : path === "/how-it-works" ? (
               <>
                 <div className="page-heading">
@@ -1101,15 +1578,7 @@ export function App() {
                     </div>
                   </div>
                 </section>
-                {isExample && (
-                  <div className="example-notice">
-                    <span>
-                      <Sparkles size={14} />
-                      <strong>{en.sampleBanner}</strong>
-                    </span>
-                    <p>{en.sampleHelp}</p>
-                  </div>
-                )}
+
                 <section className="stats" aria-label={en.workspace}>
                   <div>
                     <span className="stat-icon">
@@ -1157,12 +1626,23 @@ export function App() {
                 <section className="projects">
                   <div className="projects-heading">
                     <div>
-                      <h2>{en.projectsTitle}</h2>
+                      <h2>
+                        {sectionFilter === "all" ? en.projectsTitle : page}
+                      </h2>
                       <p>{en.projectsSubtitle}</p>
                     </div>
                     <button className="button primary" onClick={newDraft}>
                       <Plus size={17} />
                       {en.newHandoff}
+                    </button>
+                  </div>
+                  <div className="workspace-actions">
+                    <button
+                      className="button secondary"
+                      onClick={() => setRevision((value) => value + 1)}
+                    >
+                      <RefreshCw size={15} />
+                      {en.refresh}
                     </button>
                   </div>
                   <div className="project-controls">
@@ -1171,13 +1651,18 @@ export function App() {
                         ["all", en.all],
                         ["awaiting-client", en.awaiting],
                         ["draft", en.drafts],
+                        ["ready", en.ready],
+                        ["payment-pending", workflow.pendingStatus],
                         ["paid", workflow.paidStatus],
                       ].map(([key, label]) => (
                         <button
                           key={key}
-                          onClick={() => setFilter(key)}
-                          aria-pressed={filter === key}
-                          className={filter === key ? "active" : ""}
+                          onClick={() => {
+                            setFilter(key);
+                            if (sectionFilter !== "all") navigate("/");
+                          }}
+                          aria-pressed={activeFilter === key}
+                          className={activeFilter === key ? "active" : ""}
                         >
                           {label}
                           {key === "all" && <span>{items.length}</span>}
@@ -1230,103 +1715,107 @@ export function App() {
                       <ChevronDown size={14} />
                     </label>
                   </div>
+                  {(!loaded || (user && !listLoaded)) && (
+                    <p role="status" className="loading">
+                      <LoaderCircle className="spin" />
+                      {en.loadingWorkspace}
+                    </p>
+                  )}
+                  {listError && (
+                    <p className="error" role="alert">
+                      {listError}
+                    </p>
+                  )}
+                  {loaded && !user && (
+                    <div className="empty-state small">
+                      <Wallet size={28} />
+                      <h3>{en.connectWorkspace}</h3>
+                      <p>{en.connectWorkspaceBody}</p>
+                      <button
+                        className="button primary"
+                        onClick={() => setWalletOpen(true)}
+                      >
+                        {en.wallet}
+                      </button>
+                    </div>
+                  )}
+                  {loaded && user?.scope === "download" && (
+                    <p className="notice">{en.downloadOnly}</p>
+                  )}
+                  {loaded &&
+                    listLoaded &&
+                    user &&
+                    user.scope !== "download" &&
+                    !listError &&
+                    items.length === 0 && (
+                      <div className="empty-state small">
+                        <FolderClosed size={28} />
+                        <h3>{en.makeFirst}</h3>
+                        <p>{en.makeFirstBody}</p>
+                      </div>
+                    )}
                   <div
                     className={`project-grid ${view === "list" ? "list-view" : ""}`}
                   >
                     {filtered.map((h) => (
-                      <button
-                        className="project-card"
+                      <HandoffCard
                         key={h.id}
-                        onClick={() =>
-                          navigate(
-                            isExample ? `/example/${h.id}` : `/draft/${h.id}`,
-                          )
-                        }
-                      >
-                        {isExample ? (
-                          <Artwork kind={h.id} compact />
-                        ) : h.files[0]?.previewMime === "image/gif" ? (
-                          <div className="blank-cover">
-                            <FileImage size={38} />
-                          </div>
-                        ) : h.files.length ? (
-                          <div className="actual-cover">
-                            <img
-                              src={`/api/previews/${h.id}/${h.files[0].id}`}
-                              alt=""
-                            />
-                          </div>
-                        ) : (
-                          <div className="blank-cover">
-                            <FolderClosed size={38} />
-                            <span>{en.draft}</span>
-                          </div>
-                        )}
-                        <div className="card-content">
-                          <div className="card-topline">
-                            <span className={`status-pill ${h.status}`}>
-                              <span />
-                              {statuses[h.status]}
-                            </span>
-                            <span className="card-file-count">
-                              <FileImage size={13} />
-                              {h.files.length} {en.files}
-                            </span>
-                          </div>
-                          <h3>{h.title}</h3>
-                          <p className="card-client">
-                            {en.for} <span>{h.clientLabel}</span>
-                          </p>
-                          <div className="card-bottom">
-                            <strong>
-                              {new Intl.NumberFormat("en").format(
-                                Number(h.amount),
-                              )}
-                              <span>{h.currency}</span>
-                            </strong>
-                            <span className="card-open" aria-label={en.open}>
-                              <ArrowUpRight size={19} />
-                            </span>
-                          </div>
-                        </div>
-                      </button>
-                    ))}
-                    {!search && filter === "all" && (
-                      <button className="create-card" onClick={newDraft}>
-                        <span className="create-icon">
-                          <Plus size={24} />
-                        </span>
-                        <strong>{en.createAnother}</strong>
-                        <p>{en.newCardBody}</p>
-                        <span>
-                          {en.newHandoff}
-                          <ArrowRight size={15} />
-                        </span>
-                      </button>
-                    )}
-                  </div>
-                  {!filtered.length && (search || filter !== "all") && (
-                    <div className="empty-state small">
-                      <Search size={28} />
-                      <h3>{en.noResults}</h3>
-                      <p>{en.noResultsBody}</p>
-                      <button
-                        className="button secondary"
-                        onClick={() => {
-                          setFilter("all");
-                          setSearch("");
+                        handoff={h}
+                        open={() => navigate(`/draft/${h.id}`)}
+                        share={() => void copyLink(h)}
+                        remove={() => {
+                          setDeleteError("");
+                          setDeleting(h);
                         }}
-                      >
-                        {en.clear}
-                      </button>
-                    </div>
-                  )}
+                      />
+                    ))}
+                    {loaded &&
+                      listLoaded &&
+                      user &&
+                      user.scope !== "download" &&
+                      !search &&
+                      activeFilter === "all" && (
+                        <button className="create-card" onClick={newDraft}>
+                          <span className="create-icon">
+                            <Plus size={24} />
+                          </span>
+                          <strong>{en.createAnother}</strong>
+                          <p>{en.newCardBody}</p>
+                          <span>
+                            {en.newHandoff}
+                            <ArrowRight size={15} />
+                          </span>
+                        </button>
+                      )}
+                  </div>
+                  {loaded &&
+                    listLoaded &&
+                    user &&
+                    !listError &&
+                    !filtered.length &&
+                    (search || activeFilter !== "all") && (
+                      <div className="empty-state small">
+                        <Search size={28} />
+                        <h3>{en.noResults}</h3>
+                        <p>{en.noResultsBody}</p>
+                        <button
+                          className="button secondary"
+                          onClick={() => {
+                            setFilter("all");
+                            setSearch("");
+                            if (sectionFilter !== "all") navigate("/");
+                          }}
+                        >
+                          {en.clear}
+                        </button>
+                      </div>
+                    )}
                 </section>
               </>
             )}
-            {error && (
+            {(error || sessionError) && (
               <p role="alert" className="error">
-                {error}
+                {error || sessionError}
               </p>
             )}
             <footer>
@@ -1335,14 +1824,55 @@ export function App() {
                 <span className="footer-star">✳</span>
                 {en.tagline}
               </span>
-              <span>
-                <span className="connection-dot" />
-                {en.development}
-              </span>
+              <RuntimeStatus revision={revision} />
             </footer>
           </div>
         </main>
       </div>
+      {shareLink && (
+        <Modal title={en.share} close={() => setShareLink("")}>
+          <p>{en.copyManually}</p>
+          <input
+            className="share-link-input"
+            value={shareLink}
+            readOnly
+            onFocus={(event) => event.currentTarget.select()}
+            aria-label={en.share}
+          />
+        </Modal>
+      )}
+      {deleting && (
+        <Modal
+          title={en.deleteDraft}
+          close={() => {
+            if (!deleteBusy) setDeleting(undefined);
+          }}
+        >
+          <p>{en.deleteDraftHelp}</p>
+          <strong>{deleting.title}</strong>
+          {deleteError && (
+            <p role="alert" className="error">
+              {deleteError}
+            </p>
+          )}
+          <div className="modal-footer">
+            <button
+              className="button secondary"
+              disabled={deleteBusy}
+              onClick={() => setDeleting(undefined)}
+            >
+              {en.cancel}
+            </button>
+            <button
+              className="button primary"
+              disabled={deleteBusy}
+              onClick={() => void deleteDraft()}
+            >
+              {deleteBusy ? en.saving : en.deleteDraft}
+            </button>
+          </div>
+        </Modal>
+      )}
       {walletOpen && (
         <WalletModal close={() => setWalletOpen(false)} connected={setUser} />
       )}

@@ -243,21 +243,6 @@ img {
   align-items: center;
   gap: 18px;
 }
-.pilot-pill {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 8px;
-  font-weight: 650;
-  letter-spacing: 1.3px;
-  color: #8b937d;
-}
-.pilot-pill > span {
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: #99ab75;
-}
 .button {
   display: inline-flex;
   align-items: center;
@@ -1908,9 +1893,6 @@ dialog::backdrop {
   .hero-text-button {
     display: none;
   }
-  .pilot-pill {
-    display: none;
-  }
   .project-controls {
     flex-wrap: wrap;
   }
@@ -2729,4 +2711,142 @@ footer {
   display: block;
   max-width: 100%;
   height: auto;
+}
+
+.project-open {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  color: inherit;
+}
+.card-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 18px 16px;
+  flex-wrap: wrap;
+}
+.card-actions .button {
+  font-size: 12px;
+  padding: 9px 11px;
+}
+.list-view .project-card {
+  display: block;
+}
+.list-view .project-open {
+  display: grid;
+  grid-template-columns: 185px minmax(0, 1fr);
+}
+.workspace-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 12px;
+}
+.project-controls {
+  flex-wrap: wrap;
+}
+.tabs {
+  flex-wrap: wrap;
+}
+.account-panel,
+.requests-panel {
+  margin-top: 24px;
+}
+.account-panel h1,
+.requests-panel h1 {
+  font-size: 28px;
+  margin-bottom: 16px;
+}
+.account-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 24px;
+}
+.request-list-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 20px 0;
+  border-bottom: 1px solid var(--line);
+}
+.request-list-row > div {
+  min-width: 0;
+}
+.share-link-input {
+  width: 100%;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+@media (max-width: 720px) {
+  .sidebar nav {
+    width: 100%;
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    padding-bottom: 6px;
+  }
+  .sidebar nav .nav-item {
+    flex-shrink: 0;
+    white-space: nowrap;
+  }
+  .request-list-row {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
+@media (max-width: 500px) {
+  .list-view .project-open {
+    grid-template-columns: 85px minmax(0, 1fr);
+  }
+  .card-actions {
+    padding: 0 12px 12px;
+  }
+}
+
+.support-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-items: flex-end;
+  margin: 24px 0;
+}
+.support-controls label {
+  display: grid;
+  gap: 8px;
+}
+.support-controls input,
+.support-controls select {
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  max-width: 100%;
+}
+.support-list {
+  display: grid;
+  gap: 20px;
+}
+.support-request {
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  min-width: 0;
+}
+.support-request h2 {
+  margin-top: 14px;
+}
+.support-message {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.support-inbox {
+  margin-top: 24px;
+}
+.sidebar {
+  overflow-y: auto;
 }

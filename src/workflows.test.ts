@@ -1,6 +1,6 @@
 import { afterEach, expect, test, vi } from "vitest";
 import type { PaymentIntent } from "@handoff/contracts";
-import { walletPayment } from "./workflows";
+import { checkoutPayment, walletPayment } from "./workflows";
 const mocks = vi.hoisted(() => ({ init: vi.fn(), api: vi.fn() }));
 vi.mock("@nimiq/mini-app-sdk", () => ({ init: mocks.init }));
 vi.mock("./lib", () => ({ api: mocks.api }));
@@ -93,4 +93,108 @@ test("NIM requires a testnet node response before opening transaction approval",
     data: "7",
   });
   expect(mocks.api).not.toHaveBeenCalled();
+});
+
+test("NIM refuses mainnet intents even when the wallet reports testnet", async () => {
+  mocks.init.mockResolvedValue({
+    request: async () => ({ data: { network: "TestAlbatross" } }),
+    listAccounts: async () => [intent.payer],
+    sendBasicTransactionWithData: vi.fn(),
+  });
+  await expect(
+    walletPayment({ ...intent, currency: "NIM", network: "nimiq:albatross" }),
+  ).rejects.toThrow();
+  expect(mocks.init).not.toHaveBeenCalled();
+});
+
+test("unsafe, zero, malformed and expired atomic amounts never open the wallet", async () => {
+  for (const units of ["9007199254740993", "0", "-1", "1.5"]) {
+    await expect(
+      walletPayment({
+        ...intent,
+        currency: "NIM",
+        network: "nimiq:testalbatross",
+        units,
+      }),
+    ).rejects.toThrow();
+  }
+  await expect(
+    walletPayment({ ...intent, expiresAt: Date.now() - 1 }),
+  ).rejects.toThrow();
+  expect(mocks.init).not.toHaveBeenCalled();
+});
+
+test("USDT rejects malformed token, recipient and nonce before wallet approval", async () => {
+  const request = vi.fn();
+  vi.stubGlobal("window", { ethereum: { request } });
+  for (const change of [
+    { token: "0xBAD" },
+    { recipient: "not-an-address" },
+    { reference: "1.5" },
+    { units: (2n ** 256n).toString() },
+  ]) {
+    await expect(walletPayment({ ...intent, ...change })).rejects.toThrow();
+  }
+  expect(request).not.toHaveBeenCalled();
+});
+
+test("wallet payment responses never grant entitlement and provider errors surface", async () => {
+  mocks.init.mockResolvedValue({
+    request: async () => ({ network: "TestAlbatross" }),
+    listAccounts: async () => [intent.payer],
+    sendBasicTransactionWithData: async () => ({
+      error: { message: "declined" },
+    }),
+  });
+  await expect(
+    walletPayment({
+      ...intent,
+      currency: "NIM",
+      network: "nimiq:testalbatross",
+    }),
+  ).rejects.toThrow();
+  expect(mocks.api).not.toHaveBeenCalled();
+});
+
+test("a checkout response arriving after wallet switch or unmount never opens the wallet", async () => {
+  for (const lifecycleChange of ["wallet changed", "component unmounted"]) {
+    let active = true;
+    let respond!: (result: { intent: PaymentIntent; receipt: null }) => void;
+    mocks.api.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          respond = resolve;
+        }),
+    );
+    const onIntent = vi.fn();
+    const pending = checkoutPayment(intent.handoff, () => active, onIntent);
+    active = false;
+    respond({
+      intent: { ...intent, currency: "NIM", network: "nimiq:testalbatross" },
+      receipt: null,
+    });
+    await expect(pending, lifecycleChange).resolves.toBeNull();
+    expect(onIntent).not.toHaveBeenCalled();
+    expect(mocks.init).not.toHaveBeenCalled();
+  }
+});
+
+test("wallet session change during account selection prevents NIM broadcast", async () => {
+  let active = true;
+  const send = vi.fn();
+  mocks.init.mockResolvedValue({
+    request: async () => ({ network: "TestAlbatross" }),
+    listAccounts: async () => {
+      active = false;
+      return [intent.payer];
+    },
+    sendBasicTransactionWithData: send,
+  });
+  await expect(
+    walletPayment(
+      { ...intent, currency: "NIM", network: "nimiq:testalbatross" },
+      () => active,
+    ),
+  ).rejects.toThrow("session changed");
+  expect(send).not.toHaveBeenCalled();
 });
