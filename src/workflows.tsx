@@ -308,12 +308,17 @@ export async function walletPayment(
     if (BigInt(intent.units) > BigInt(Number.MAX_SAFE_INTEGER))
       throw new Error(t.invalidIntent);
     const provider = await init({ timeout: 5000 });
-    const result = (await provider.request({
-      method: "getLatestBlock",
-      params: [false],
-    })) as { data?: { network?: string }; network?: string };
-    if ((result.data?.network ?? result.network) !== "TestAlbatross")
-      throw new Error(t.switchTestnet);
+    const result = (await provider
+      .request({
+        method: "getLatestBlock",
+        params: [false],
+      })
+      .catch(() => {
+        throw new Error(t.networkCheckUnavailable);
+      })) as { data?: { network?: string }; network?: string } | null;
+    const network = result?.data?.network ?? result?.network;
+    if (!network) throw new Error(t.networkCheckUnavailable);
+    if (network !== "TestAlbatross") throw new Error(t.switchTestnet);
     requireCurrent();
     const accounts = await provider.listAccounts();
     if (

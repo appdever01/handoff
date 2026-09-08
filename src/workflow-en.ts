@@ -31,6 +31,8 @@ export const workflow = {
   playPreview: "Play short preview",
   pausePreview: "Pause preview",
   switchTestnet: "Switch Nimiq Pay to testnet before paying.",
+  networkCheckUnavailable:
+    "Handoff couldn't check the test network. Reopen this delivery in Nimiq Pay's test mode and try again.",
   approvedWallet: "Use the approved client wallet.",
   openWallet: "Open this delivery in Nimiq Pay.",
   paidStatus: "Paid",

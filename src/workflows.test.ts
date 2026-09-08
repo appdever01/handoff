@@ -1,6 +1,7 @@
 import { afterEach, expect, test, vi } from "vitest";
 import type { PaymentIntent } from "@handoff/contracts";
 import { checkoutPayment, walletPayment } from "./workflows";
+import { workflow } from "./workflow-en";
 const mocks = vi.hoisted(() => ({ init: vi.fn(), api: vi.fn() }));
 vi.mock("@nimiq/mini-app-sdk", () => ({ init: mocks.init }));
 vi.mock("./lib", () => ({ api: mocks.api }));
@@ -75,7 +76,7 @@ test("NIM requires a testnet node response before opening transaction approval",
       currency: "NIM",
       network: "nimiq:testalbatross",
     }),
-  ).rejects.toThrow();
+  ).rejects.toThrow(workflow.switchTestnet);
   expect(send).not.toHaveBeenCalled();
   mocks.init.mockResolvedValue({
     request: async () => ({ data: { network: "TestAlbatross" } }),
@@ -94,6 +95,53 @@ test("NIM requires a testnet node response before opening transaction approval",
   });
   expect(mocks.api).not.toHaveBeenCalled();
 });
+
+test.each([
+  "No RPC URL configured. Call setRPCUrl() or pass rpcUrl in the constructor.",
+  "Failed to fetch",
+])(
+  "NIM network check failure gives a retry instruction without sending: %s",
+  async (message) => {
+    const send = vi.fn();
+    const setRPCUrl = vi.fn();
+    const listAccounts = vi.fn();
+    mocks.init.mockResolvedValue({
+      request: vi.fn().mockRejectedValue(new Error(message)),
+      listAccounts,
+      setRPCUrl,
+      sendBasicTransactionWithData: send,
+    });
+    await expect(
+      walletPayment({
+        ...intent,
+        currency: "NIM",
+        network: "nimiq:testalbatross",
+      }),
+    ).rejects.toThrow(workflow.networkCheckUnavailable);
+    expect(listAccounts).not.toHaveBeenCalled();
+    expect(send).not.toHaveBeenCalled();
+    expect(setRPCUrl).not.toHaveBeenCalled();
+  },
+);
+
+test.each([null, {}, { data: {} }])(
+  "NIM missing network information prevents sending: %j",
+  async (result) => {
+    const send = vi.fn();
+    mocks.init.mockResolvedValue({
+      request: vi.fn().mockResolvedValue(result),
+      sendBasicTransactionWithData: send,
+    });
+    await expect(
+      walletPayment({
+        ...intent,
+        currency: "NIM",
+        network: "nimiq:testalbatross",
+      }),
+    ).rejects.toThrow(workflow.networkCheckUnavailable);
+    expect(send).not.toHaveBeenCalled();
+  },
+);
 
 test("NIM refuses mainnet intents even when the wallet reports testnet", async () => {
   mocks.init.mockResolvedValue({
