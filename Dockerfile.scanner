@@ -1,0 +1,2 @@
+FROM clamav/clamav:stable@sha256:1fdfd24c6f0a0fb60788481487459a6d4eda8a9b448641594e04db8410d34422
+COPY clamd.conf /etc/clamav/clamd.conf

@@ -1,0 +1,17 @@
+name: handoff-local
+services:
+  scanner:
+    build:
+      context: .
+      dockerfile: Dockerfile.scanner
+    image: handoff-scanner:local
+    platform: linux/amd64
+    ports:
+      - "127.0.0.1:3310:3310"
+    volumes:
+      - definitions:/var/lib/clamav
+    mem_limit: 2g
+    cpus: 1
+    restart: "no"
+volumes:
+  definitions:

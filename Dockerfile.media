@@ -1,0 +1,8 @@
+FROM node:24-bookworm-slim@sha256:ba849c60be29959425b8734d57b8b4b7d56f98edd9504c9af091d5281095a71e
+RUN apt-get update && apt-get install -y --no-install-recommends poppler-utils ffmpeg fonts-dejavu-core && rm -rf /var/lib/apt/lists/*
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci --ignore-scripts
+COPY src ./src
+USER node
+ENTRYPOINT ["node", "--import", "tsx", "src/media-worker.ts"]

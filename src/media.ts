@@ -17,7 +17,9 @@ export const scanFile = async (path: string): Promise<boolean> => {
   }
 };
 
-export async function createPreview(bytes: Buffer) {
+export async function createPreview(
+  bytes: Buffer,
+): Promise<{ preview: Buffer; previewMime: string; mime: string }> {
   const input = sharp(bytes, {
     limitInputPixels: 24_000_000,
     failOn: "warning",
@@ -50,7 +52,24 @@ export async function createPreview(bytes: Buffer) {
     .toBuffer();
   return {
     preview,
+    previewMime: "image/jpeg",
     mime:
       metadata.format === "jpeg" ? "image/jpeg" : `image/${metadata.format}`,
   };
+}
+
+export function sourceType(bytes: Buffer): string | undefined {
+  if (bytes.subarray(0, 4).toString() === "8BPS")
+    return "image/vnd.adobe.photoshop";
+  if (bytes.subarray(0, 7).toString() === "BLENDER")
+    return "application/x-blender";
+  if (bytes.subarray(0, 4).equals(Buffer.from([0x50, 0x4b, 0x03, 0x04])))
+    return "application/zip";
+}
+export async function sourcePlaceholder() {
+  return sharp({
+    create: { width: 800, height: 500, channels: 3, background: "#e7e7e7" },
+  })
+    .jpeg()
+    .toBuffer();
 }

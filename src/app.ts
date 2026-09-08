@@ -15,7 +15,16 @@ import {
 } from "../packages/contracts/index.ts";
 import { openStore } from "./store.ts";
 import { hash, proofSchema, verifyProof } from "./auth.ts";
-import { createPreview, scanFile } from "./media.ts";
+import { sandboxAdapter, sandboxRoutes } from "./sandbox.ts";
+import { retain } from "./retention.ts";
+import { payments, type PaymentAdapter } from "./payments.ts";
+import { pairing } from "./pairing.ts";
+import {
+  createPreview,
+  scanFile,
+  sourceType,
+  sourcePlaceholder,
+} from "./media.ts";
 
 class HttpError extends Error {
   constructor(
@@ -29,13 +38,37 @@ class HttpError extends Error {
 export async function buildApp(
   options: {
     directory?: string;
+    sandbox?: boolean;
     origin?: string;
     scan?: typeof scanFile;
+    preview?: typeof createPreview;
     logger?: boolean;
+    payments?: Partial<Record<"NIM" | "USDT", PaymentAdapter>>;
   } = {},
 ) {
   const directory = resolve(options.directory ?? ".data");
   const origin = options.origin ?? "http://localhost:5173";
+  if (
+    options.sandbox &&
+    (process.env.NODE_ENV === "production" ||
+      !["localhost", "127.0.0.1"].includes(new URL(origin).hostname) ||
+      !directory.endsWith(".sandbox-data"))
+  )
+    throw new Error(
+      "Sandbox requires a loopback origin and a separate .sandbox-data directory",
+    );
+  const mode = options.sandbox ? "sandbox" : "wallet";
+  await mkdir(directory, { recursive: true, mode: 0o700 });
+  const modePath = join(directory, "mode");
+  try {
+    await writeFile(modePath, mode, { flag: "wx", mode: 0o600 });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+  }
+  if ((await readFile(modePath, "utf8")) !== mode)
+    throw new Error(
+      "Sandbox and wallet data directories cannot be interchanged",
+    );
   const secure = new URL(origin).protocol === "https:";
   const store = openStore(directory);
   const app = Fastify({
@@ -83,12 +116,40 @@ export async function buildApp(
     if (!user) throw new HttpError(401, "Connect your wallet to continue");
     return user;
   }
+  app.addHook("preHandler", async (req) => {
+    const user = store.session(hash(req.cookies.handoff_session ?? ""));
+    if (!user?.scope) return;
+    const path = req.url.split("?")[0];
+    const common =
+      path === "/api/session" ||
+      path === "/api/logout" ||
+      path.startsWith("/api/devices");
+    const download =
+      req.method === "GET" &&
+      /^\/api\/(purchases|originals|receipts|public|previews)(\/|$)/.test(path);
+    const upload =
+      (/^\/api\/handoffs(\/|$)/.test(path) &&
+        !/(checkout|bind-client)$/.test(path)) ||
+      (req.method === "GET" && path.startsWith("/api/previews/"));
+    if (!common && !(user.scope === "download" ? download : upload))
+      throw new HttpError(
+        403,
+        "This paired session does not allow this action",
+      );
+  });
+  pairing(app, store, origin, session);
   function owned(req: FastifyRequest, draftOnly = false) {
     const user = session(req);
     const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
     const handoff = store.get(id);
     if (!handoff || handoff.creator !== user.address)
       throw new HttpError(404, "Handoff not found");
+    if (
+      store.db
+        .prepare("SELECT handoff FROM deletions WHERE handoff=?")
+        .get(handoff.id)
+    )
+      throw new HttpError(410, "This delivery has passed its retention period");
     if (draftOnly && handoff.status !== "draft")
       throw new HttpError(409, "Published deliveries cannot be changed");
     return handoff;
@@ -98,7 +159,14 @@ export async function buildApp(
     if (delta <= 0 || delta > 30 * 86400_000)
       throw new HttpError(400, "Choose a deadline within the next 30 days");
   }
-  app.get("/api/health", async () => ({ ok: true, checkoutEnabled: false }));
+  app.get("/api/health", async () => ({
+    ok: true,
+    checkoutEnabled: Boolean(
+      options.sandbox ||
+      (options.payments && Object.keys(options.payments).length),
+    ),
+    sandbox: Boolean(options.sandbox),
+  }));
   app.get("/api/session", async (req) => ({
     user: store.session(hash(req.cookies.handoff_session ?? "")) ?? null,
   }));
@@ -166,7 +234,18 @@ export async function buildApp(
     return { ok: true };
   });
   app.get("/api/handoffs", async (req) => ({
-    handoffs: store.list(session(req).address),
+    handoffs: store.list(session(req).address).map((h) => ({
+      ...h,
+      status: store.db
+        .prepare("SELECT handoff FROM entitlements WHERE handoff=?")
+        .get(h.id)
+        ? "paid"
+        : store.db
+              .prepare("SELECT handoff FROM intents WHERE handoff=?")
+              .get(h.id)
+          ? "payment-pending"
+          : h.status,
+    })),
   }));
   app.post("/api/handoffs", async (req, reply) => {
     const user = session(req);
@@ -216,6 +295,25 @@ export async function buildApp(
       throw new HttpError(409, "A handoff can contain up to 10 files");
     if (uploads >= 2)
       throw new HttpError(429, "Uploads are busy. Try again shortly.");
+    const totals = store.db
+      .prepare(
+        "SELECT coalesce(sum(json_extract(f.value, '$.bytes')),0) n FROM handoffs h, json_each(h.data, '$.files') f WHERE h.id NOT IN (SELECT handoff FROM deletions)",
+      )
+      .get() as { n: number };
+    const accountBytes = store
+      .list(handoff.creator)
+      .filter(
+        (h) =>
+          !store.db
+            .prepare("SELECT handoff FROM deletions WHERE handoff=?")
+            .get(h.id),
+      )
+      .reduce((sum, h) => sum + h.files.reduce((n, f) => n + f.bytes, 0), 0);
+    if (
+      totals.n + (uploads + 1) * 15 * 1024 * 1024 > 5 * 1024 ** 3 ||
+      accountBytes + (uploads + 1) * 15 * 1024 * 1024 > 500 * 1024 ** 2
+    )
+      throw new HttpError(413, "Storage quota reached");
     uploads++;
     const id = randomUUID();
     const originalPath = join(directory, "originals", id);
@@ -226,7 +324,14 @@ export async function buildApp(
       const bytes = await part.toBuffer();
       let result: Awaited<ReturnType<typeof createPreview>>;
       try {
-        result = await createPreview(bytes);
+        const mime = sourceType(bytes);
+        result = mime
+          ? {
+              mime,
+              preview: await sourcePlaceholder(),
+              previewMime: "image/jpeg",
+            }
+          : await (options.preview ?? createPreview)(bytes);
       } catch {
         throw new HttpError(
           400,
@@ -257,8 +362,10 @@ export async function buildApp(
         mime: result.mime,
         sha256: hash(bytes),
         previewSha256: hash(result.preview),
+        previewMime: result.previewMime,
         scan: clean ? "clean" : "quarantined",
         approved: false,
+        suppliedPreviewRequired: Boolean(sourceType(bytes)),
       });
       store.save(current);
       return reply.code(201).send({ handoff: current });
@@ -270,6 +377,51 @@ export async function buildApp(
       throw error;
     } finally {
       uploads--;
+    }
+  });
+  app.post("/api/handoffs/:id/files/:fileId/preview", async (req) => {
+    const h = owned(req, true);
+    const { fileId } = z
+      .object({ fileId: z.string().uuid() })
+      .parse(req.params);
+    if (!h.files.some((f) => f.id === fileId))
+      throw new HttpError(404, "File not found");
+    if (uploads >= 2) throw new HttpError(429, "Processing is busy");
+    uploads++;
+    const temporary = join(directory, `preview-upload-${randomUUID()}`);
+    try {
+      const part = await req.file();
+      if (!part) throw new HttpError(400, "Choose an image or PDF preview");
+      const bytes = await part.toBuffer();
+      await writeFile(temporary, bytes, { mode: 0o600, flag: "wx" });
+      if (!(await (options.scan ?? scanFile)(temporary)))
+        throw new HttpError(409, "Preview did not pass malware screening");
+      const result = await (options.preview ?? createPreview)(bytes);
+      if (
+        !result.mime.startsWith("image/") &&
+        result.mime !== "application/pdf"
+      )
+        throw new HttpError(400, "Use an image or PDF preview");
+      const current = owned(req, true);
+      const file = current.files.find((f) => f.id === fileId);
+      if (!file) throw new HttpError(404, "File not found");
+      await writeFile(
+        join(directory, "previews", `${fileId}.jpg`),
+        result.preview,
+        { mode: 0o600 },
+      );
+      const latest = owned(req, true);
+      const target = latest.files.find((f) => f.id === fileId);
+      if (!target) throw new HttpError(409, "File changed during processing");
+      target.previewSha256 = hash(result.preview);
+      target.previewMime = result.previewMime;
+      target.suppliedPreviewRequired = false;
+      target.approved = false;
+      store.save(latest);
+      return { handoff: latest };
+    } finally {
+      uploads--;
+      await rm(temporary, { force: true });
     }
   });
   app.delete("/api/handoffs/:id/files/:fileId", async (req) => {
@@ -322,7 +474,11 @@ export async function buildApp(
       handoff.files.some((file) => !fileIds.includes(file.id))
     )
       throw new HttpError(409, "Review every current preview before approving");
-    if (handoff.files.some((file) => file.scan !== "clean"))
+    if (
+      handoff.files.some(
+        (file) => file.scan !== "clean" || file.suppliedPreviewRequired,
+      )
+    )
       throw new HttpError(
         409,
         "Every file needs a clean malware scan before approval",
@@ -336,9 +492,19 @@ export async function buildApp(
   app.post("/api/handoffs/:id/publish", async (req) => {
     const handoff = owned(req, true);
     deadline(handoff.deadline);
+    if (uploads > 0)
+      throw new HttpError(
+        409,
+        "Wait for file processing to finish before publishing",
+      );
     if (
       !handoff.files.length ||
-      handoff.files.some((file) => !file.approved || file.scan !== "clean")
+      handoff.files.some(
+        (file) =>
+          !file.approved ||
+          file.scan !== "clean" ||
+          file.suppliedPreviewRequired,
+      )
     )
       throw new HttpError(
         409,
@@ -361,13 +527,24 @@ export async function buildApp(
     store.save(handoff);
     return { handoff };
   });
+  function purchasedAccess(req: FastifyRequest, id: string) {
+    const user = store.session(hash(req.cookies.handoff_session ?? ""));
+    return Boolean(
+      user &&
+      store.db
+        .prepare(
+          "SELECT handoff FROM entitlements WHERE handoff=? AND wallet=? AND json_extract(data, '$.expiresAt')>? AND json_extract(data, '$.currency')=?",
+        )
+        .get(id, user.address, Date.now(), user.currency),
+    );
+  }
   app.get("/api/public/:id", async (req) => {
     const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
     const handoff = store.get(id);
     if (
       !handoff ||
       handoff.status === "draft" ||
-      Date.parse(handoff.deadline) <= Date.now()
+      (Date.parse(handoff.deadline) <= Date.now() && !purchasedAccess(req, id))
     )
       throw new HttpError(404, "This handoff is unavailable or expired");
     const {
@@ -378,7 +555,9 @@ export async function buildApp(
     return {
       handoff: {
         ...publicData,
-        checkoutEnabled: false,
+        checkoutEnabled: Boolean(
+          options.sandbox || options.payments?.[handoff.currency],
+        ),
         downloadDays: 30,
       } satisfies PublicHandoff,
     };
@@ -397,11 +576,12 @@ export async function buildApp(
       !owner &&
       (handoff.status === "draft" ||
         file.scan !== "clean" ||
-        Date.parse(handoff.deadline) <= Date.now())
+        (Date.parse(handoff.deadline) <= Date.now() &&
+          !purchasedAccess(req, id)))
     )
       throw new HttpError(404, "Preview not found");
     return reply
-      .type("image/jpeg")
+      .type(file.previewMime ?? "image/jpeg")
       .send(await readFile(join(directory, "previews", `${fileId}.jpg`)));
   });
   app.post("/api/public/:id/request-access", async (req) => {
@@ -467,18 +647,34 @@ export async function buildApp(
     store.save(handoff);
     return { handoff };
   });
-  app.post("/api/handoffs/:id/checkout", async () => {
-    throw new HttpError(
-      503,
-      "Payments are not enabled in this development build",
-    );
+  payments(
+    app,
+    store,
+    directory,
+    session,
+    options.sandbox ? { USDT: sandboxAdapter(store) } : options.payments,
+  );
+  if (options.sandbox) sandboxRoutes(app, store, origin);
+  store.db.exec(
+    "CREATE TABLE IF NOT EXISTS deletions (handoff TEXT PRIMARY KEY, at INTEGER NOT NULL)",
+  );
+  let maintenance: Promise<void> | undefined;
+  const sweep = () => {
+    if (!maintenance && uploads === 0)
+      maintenance = retain(store, directory)
+        .catch((error) => app.log.error(error))
+        .finally(() => {
+          maintenance = undefined;
+        });
+  };
+  const retentionTimer = setInterval(sweep, 3600_000);
+  retentionTimer.unref();
+  app.addHook("onReady", async () => {
+    sweep();
   });
-  app.get("/api/originals/:id/:fileId", async (req) => {
-    session(req);
-    throw new HttpError(
-      403,
-      "A verified, finalized payment entitlement is required",
-    );
+  app.addHook("onClose", async () => {
+    clearInterval(retentionTimer);
+    await maintenance;
   });
   return app;
 }

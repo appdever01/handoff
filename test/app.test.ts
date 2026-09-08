@@ -332,7 +332,7 @@ test("publication needs explicit preview approval, freezes edits and excludes pr
         payload: { paid: true, hash: "fake" },
       })
     ).statusCode,
-    503,
+    403,
   );
   assert.equal(
     (
@@ -577,5 +577,64 @@ test("restart preserves drafts and sessions; logout revokes the session", async 
       })
     ).statusCode,
     401,
+  );
+});
+
+test("editable originals cannot publish until a scanned supplied preview is approved", async () => {
+  cookie = (await signIn()).cookie;
+  const draft = await create();
+  const uploaded = await upload(
+    draft.id,
+    Buffer.from("BLENDER-v300editable-source"),
+  );
+  assert.equal(uploaded.response.statusCode, 201, uploaded.response.body);
+  const file = uploaded.response.json().handoff.files[0];
+  assert.equal(file.suppliedPreviewRequired, true);
+  assert.equal(
+    (
+      await app.inject({
+        method: "POST",
+        url: `/api/handoffs/${draft.id}/approve-previews`,
+        headers: { origin, cookie },
+        payload: { fileIds: [file.id] },
+      })
+    ).statusCode,
+    409,
+  );
+  const png = await sharp({
+    create: { width: 100, height: 100, channels: 3, background: "blue" },
+  })
+    .png()
+    .toBuffer();
+  const payload = Buffer.concat([
+    Buffer.from(
+      '--preview\r\nContent-Disposition: form-data; name="file"; filename="preview.png"\r\nContent-Type: image/png\r\n\r\n',
+    ),
+    png,
+    Buffer.from("\r\n--preview--\r\n"),
+  ]);
+  const supplied = await app.inject({
+    method: "POST",
+    url: `/api/handoffs/${draft.id}/files/${file.id}/preview`,
+    headers: {
+      origin,
+      cookie,
+      "content-type": "multipart/form-data; boundary=preview",
+    },
+    payload,
+  });
+  assert.equal(supplied.statusCode, 200, supplied.body);
+  assert.equal(supplied.json().handoff.files[0].suppliedPreviewRequired, false);
+  assert.equal(supplied.json().handoff.files[0].approved, false);
+  assert.equal(
+    (
+      await app.inject({
+        method: "POST",
+        url: `/api/handoffs/${draft.id}/approve-previews`,
+        headers: { origin, cookie },
+        payload: { fileIds: [file.id] },
+      })
+    ).statusCode,
+    200,
   );
 });

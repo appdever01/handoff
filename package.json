@@ -12,7 +12,13 @@
     "test": "node --import tsx --test --test-concurrency=2 test/*.test.ts",
     "typecheck": "tsc --noEmit",
     "format": "prettier --write src test tsconfig.json package.json",
-    "format:check": "prettier --check src test tsconfig.json package.json"
+    "format:check": "prettier --check src test tsconfig.json package.json",
+    "demo": "HANDOFF_SANDBOX=1 node --import tsx src/server.ts",
+    "services": "docker compose up -d --build scanner && docker build -f Dockerfile.media -t handoff-media:local .",
+    "ops": "node --import tsx src/ops.ts",
+    "test:services": "node --import tsx scripts/check-services.ts",
+    "test:http": "node --import tsx scripts/http-smoke.ts",
+    "test:runtime": "node --import tsx scripts/runtime-smoke.ts"
   },
   "dependencies": {
     "@fastify/cookie": "^11.0.2",
