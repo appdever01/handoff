@@ -4,6 +4,7 @@ import { PrivateKey, PublicKey, Signature } from "@nimiq/core";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import sharp from "sharp";
 import { readFile } from "node:fs/promises";
+import { createInterface } from "node:readline/promises";
 
 function httpsOrigin(value: string | undefined, name: string) {
   assert.ok(value, `Set ${name} to the intended HTTPS origin`);
@@ -281,7 +282,10 @@ try {
   await request(`/public/${created.id}`, { status: 404 });
   await request(`/handoffs/${created.id}`, { cookie: nimCookie, status: 404 });
   const uploadedIds: string[] = [];
-  const fixtures = await mediaFixtures();
+  const retained: { id: string; sha256: string; previewSha256: string }[] = [];
+  const restartMode = process.env.RAILWAY_SMOKE_RESTART === "1";
+  const allFixtures = await mediaFixtures();
+  const fixtures = restartMode ? allFixtures.slice(0, 1) : allFixtures;
   for (const fixture of fixtures) {
     const uploaded = (
       await json(`/handoffs/${created.id}/files`, {
@@ -305,7 +309,16 @@ try {
       "Original media type must match the fixture",
     );
     assert.ok(file.previewSha256, "Watermarked preview hash required");
+    assert.equal(
+      file.sha256,
+      createHash("sha256").update(fixture.bytes).digest("hex"),
+    );
     uploadedIds.push(file.id);
+    retained.push({
+      id: file.id,
+      sha256: file.sha256,
+      previewSha256: file.previewSha256,
+    });
     const preview = await request(`/previews/${created.id}/${file.id}`, {
       cookie,
       status: 200,
@@ -346,10 +359,68 @@ try {
       `PASS: ${fixture.mime} scanned upload, separate private preview and unpaid-original denial.`,
     );
   }
-  if (!process.env.RAILWAY_SMOKE_VIDEO_FILE)
+  if (!restartMode && !process.env.RAILWAY_SMOKE_VIDEO_FILE)
     console.log(
       "NOT RUN: MP4 preview. Set RAILWAY_SMOKE_VIDEO_FILE to a small synthetic MP4 fixture.",
     );
+
+  if (restartMode) {
+    const input = createInterface({
+      input: process.stdin,
+      output: process.stdout,
+    });
+    try {
+      await input.question(
+        "WAITING FOR BACKEND RESTART: private PNG draft and sessions are saved. Restart the Railway API, wait for readiness, then send Enter to verify persistence.\n",
+        { signal: AbortSignal.timeout(600_000) },
+      );
+    } finally {
+      input.close();
+      process.stdin.pause();
+    }
+    const ready = await json("/ready");
+    assert.equal(ready.data.ok, true);
+    assert.equal(
+      (await json("/session", { cookie })).data.user?.address,
+      account.address,
+      "Wallet session must survive ordinary restart",
+    );
+    assert.equal(
+      (await json("/session", { cookie: nimCookie })).data.user?.address,
+      publicKey.toAddress().toUserFriendlyAddress(),
+    );
+    const restored = (await json(`/handoffs/${created.id}`, { cookie })).data
+      .handoff;
+    for (const expected of retained) {
+      const actual = restored.files.find(
+        (item: { id: string }) => item.id === expected.id,
+      );
+      assert.ok(actual, "Uploaded file record must survive restart");
+      assert.equal(
+        actual.sha256,
+        expected.sha256,
+        "Original hash must be unchanged after restart",
+      );
+      assert.equal(actual.previewSha256, expected.previewSha256);
+      const response = await request(`/previews/${created.id}/${expected.id}`, {
+        cookie,
+        status: 200,
+      });
+      const bytes = Buffer.from(await response.arrayBuffer());
+      assert.equal(
+        createHash("sha256").update(bytes).digest("hex"),
+        expected.previewSha256,
+        "Preview bytes must survive restart unchanged",
+      );
+      await request(`/originals/${created.id}/${expected.id}`, {
+        cookie,
+        status: 403,
+      });
+    }
+    console.log(
+      "PASS: actual backend restart retained NIM/EVM sessions, private draft, original hashes and exact preview bytes; unpaid originals remain blocked.",
+    );
+  }
 
   const eicar = Buffer.from(
     "X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*",

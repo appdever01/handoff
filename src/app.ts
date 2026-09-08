@@ -3,7 +3,7 @@ import cookie from "@fastify/cookie";
 import multipart from "@fastify/multipart";
 import rateLimit from "@fastify/rate-limit";
 import { randomBytes, randomUUID } from "node:crypto";
-import { mkdir, readFile, writeFile, rm } from "node:fs/promises";
+import fs, { mkdir, readFile, writeFile, rm } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { z, ZodError } from "zod";
 import {
@@ -93,6 +93,21 @@ export async function buildApp(
     requestTimeout: 60_000,
   });
   let uploads = 0;
+  async function reserveUploadStorage() {
+    let space;
+    try {
+      space = await fs.statfs(directory);
+    } catch {
+      throw new HttpError(503, "Storage is temporarily unavailable");
+    }
+    const available = space.bavail * space.bsize;
+    const required = 256 * 1024 ** 2 + uploads * (15 * 1024 ** 2 + 5_000_000);
+    if (!Number.isSafeInteger(available) || available < required)
+      throw new HttpError(
+        413,
+        "Storage is nearly full. Please try again later.",
+      );
+  }
   await app.register(cookie);
   await app.register(rateLimit, { max: 120, timeWindow: "1 minute" });
   await app.register(multipart, {
@@ -416,6 +431,7 @@ export async function buildApp(
     const originalPath = join(directory, "originals", id);
     const previewPath = join(directory, "previews", `${id}.jpg`);
     try {
+      await reserveUploadStorage();
       const part = await req.file();
       if (!part) throw new HttpError(400, "Choose a file to upload");
       const bytes = await part.toBuffer();
@@ -489,6 +505,7 @@ export async function buildApp(
     uploads++;
     const temporary = join(directory, `preview-upload-${randomUUID()}`);
     try {
+      await reserveUploadStorage();
       const part = await req.file();
       if (!part) throw new HttpError(400, "Choose an image or PDF preview");
       const bytes = await part.toBuffer();
@@ -549,6 +566,7 @@ export async function buildApp(
       throw new HttpError(404, "File not found");
     uploads++;
     try {
+      await reserveUploadStorage();
       const originalPath = join(directory, "originals", fileId);
       const clean = await (options.scan ?? scanFile)(originalPath);
       let result: Awaited<ReturnType<typeof createPreview>> | undefined;
