@@ -2656,3 +2656,77 @@ footer {
     min-height: 40px;
   }
 }
+.workflow-panel {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+.workflow-panel form,
+.workflow-panel label {
+  display: grid;
+  gap: 10px;
+}
+.workflow-panel input,
+.workflow-panel textarea,
+.workflow-panel select {
+  width: 100%;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid #d4d8d2;
+  border-radius: 8px;
+  background: white;
+  color: #202820;
+  font: inherit;
+}
+.workflow-panel .receipt {
+  display: grid;
+  gap: 12px;
+  padding: 16px 0;
+  border-top: 1px solid #d4d8d2;
+}
+.workflow-panel p,
+.workflow-panel a,
+.workflow-panel strong {
+  overflow-wrap: anywhere;
+}
+.workflow-panel summary {
+  padding: 12px 0;
+  cursor: pointer;
+  font-weight: 600;
+}
+.demo-banner {
+  flex-wrap: wrap;
+  margin-bottom: 24px;
+  border: 2px solid #936400;
+}
+.demo-banner strong {
+  flex: 1 1 100%;
+}
+@media (max-width: 600px) {
+  .header-actions {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+  .topbar {
+    height: auto;
+    min-height: 80px;
+    gap: 8px;
+  }
+  .workflow-panel .button {
+    white-space: normal;
+    height: auto;
+    min-height: 44px;
+  }
+}
+.video-preview {
+  display: grid;
+  place-items: center;
+  gap: 12px;
+  padding: 16px;
+}
+.video-preview canvas,
+.video-preview img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}

@@ -47,12 +47,22 @@ import {
   formatDate,
   shortAddress,
 } from "./lib";
+import {
+  DemoBar,
+  Pairing,
+  PaymentPanel,
+  Purchases,
+  VideoPreview,
+} from "./workflows";
+import { workflow } from "./workflow-en";
 import { samples } from "./samples";
 
 const statuses = {
   draft: en.draft,
   "awaiting-client": en.awaiting,
   ready: en.ready,
+  paid: workflow.paidStatus,
+  "payment-pending": workflow.pendingStatus,
 };
 const messageOf = (error: unknown) =>
   error instanceof Error ? error.message : en.networkError;
@@ -465,6 +475,11 @@ function Delivery({
           <div className="preview-frame">
             {example ? (
               <Artwork kind={handoff.id} />
+            ) : file?.previewMime === "image/gif" ? (
+              <VideoPreview
+                src={`/api/previews/${handoff.id}/${file.id}`}
+                label={`${en.previewOnly}: ${file.name}`}
+              />
             ) : file ? (
               <img
                 src={`/api/previews/${handoff.id}/${file.id}`}
@@ -508,7 +523,7 @@ function Delivery({
                 <span className="file-info">
                   <strong>{f.name}</strong>
                   <span>
-                    {formatBytes(f.bytes)}
+                    {formatBytes(f.bytes)} · {f.mime}
                     {owner &&
                       ` · ${f.scan === "quarantined" ? en.scanBlocked : f.approved ? en.approved : en.needsApproval}`}
                   </span>
@@ -546,11 +561,9 @@ function Delivery({
             <p className="field-note">{en.creator}</p>
             <p className="wallet-address">{handoff.creator}</p>
             <p className="field-note">{en.creatorLabelNote}</p>
-            <div className="payment-unavailable">
-              <LockKeyhole size={18} />
-              <strong>{en.paymentDisabled}</strong>
-              <p>{en.paymentDisabledBody}</p>
-            </div>
+            {!example && (
+              <PaymentPanel handoff={handoff} user={user} owner={owner} />
+            )}
             {!owner && !example && (
               <>
                 <p className="field-note">{en.approvalHint}</p>
@@ -574,7 +587,7 @@ function Delivery({
                     ref={input}
                     className="visually-hidden"
                     type="file"
-                    accept="image/jpeg,image/png,image/webp"
+                    accept="image/jpeg,image/png,image/webp,application/pdf,video/mp4,.psd,.blend,.zip"
                     multiple
                     onChange={(event) => void upload(event.target.files)}
                     aria-label={en.addFiles}
@@ -590,6 +603,32 @@ function Delivery({
                   <p className="field-note">{en.fileLimit}</p>
                   {file && (
                     <>
+                      {file.suppliedPreviewRequired && (
+                        <p className="notice">{workflow.suppliedRequired}</p>
+                      )}
+                      <label>
+                        {workflow.supplied}
+                        <input
+                          type="file"
+                          accept="image/jpeg,image/png,image/webp,application/pdf"
+                          disabled={busy}
+                          onChange={(event) => {
+                            const supplied = event.target.files?.[0];
+                            if (!supplied) return;
+                            const form = new FormData();
+                            form.append("file", supplied);
+                            setBusy(true);
+                            setError("");
+                            void api<{ handoff: Handoff }>(
+                              `/handoffs/${handoff.id}/files/${file.id}/preview`,
+                              { method: "POST", body: form },
+                            )
+                              .then((result) => update(result.handoff))
+                              .catch((error) => setError(messageOf(error)))
+                              .finally(() => setBusy(false));
+                          }}
+                        />
+                      </label>
                       <button
                         disabled={busy}
                         className="button secondary full-width"
@@ -757,7 +796,7 @@ export function App() {
   }, []);
   useEffect(() => {
     let active = true;
-    if (user)
+    if (user && user.scope !== "download")
       void api<{ handoffs: Handoff[] }>("/handoffs")
         .then((data) => {
           if (active) setHandoffs(data.handoffs);
@@ -898,6 +937,12 @@ export function App() {
             <strong>{page}</strong>
           </div>
           <div className="header-actions">
+            <button
+              className="button secondary"
+              onClick={() => navigate("/pair")}
+            >
+              {workflow.pair}
+            </button>
             <span className="pilot-pill">
               <span />
               {en.pilot}
@@ -929,7 +974,14 @@ export function App() {
         </header>
         <main id="main">
           <div className="main-inner">
-            {detail ? (
+            <DemoBar connected={setUser} />
+            {path.startsWith("/pair") ? (
+              <Pairing
+                id={path.split("/")[2]}
+                user={user}
+                connected={setUser}
+              />
+            ) : detail ? (
               <>
                 <button className="back-link" onClick={() => navigate("/")}>
                   <ArrowLeft size={16} />
@@ -960,20 +1012,7 @@ export function App() {
                 )}
               </>
             ) : path === "/purchases" ? (
-              <>
-                <div className="page-heading">
-                  <p className="eyebrow">{en.purchases}</p>
-                  <h1>{en.purchasesTitle}</h1>
-                  <p className="muted">{en.purchasesBody}</p>
-                </div>
-                <div className="empty-state">
-                  <span className="empty-icon">
-                    <Package size={30} />
-                  </span>
-                  <h2>{en.purchasesEmpty}</h2>
-                  <p>{en.purchasesHelp}</p>
-                </div>
-              </>
+              <Purchases user={user} />
             ) : path === "/how-it-works" ? (
               <>
                 <div className="page-heading">
@@ -1132,6 +1171,7 @@ export function App() {
                         ["all", en.all],
                         ["awaiting-client", en.awaiting],
                         ["draft", en.drafts],
+                        ["paid", workflow.paidStatus],
                       ].map(([key, label]) => (
                         <button
                           key={key}
@@ -1205,6 +1245,10 @@ export function App() {
                       >
                         {isExample ? (
                           <Artwork kind={h.id} compact />
+                        ) : h.files[0]?.previewMime === "image/gif" ? (
+                          <div className="blank-cover">
+                            <FileImage size={38} />
+                          </div>
                         ) : h.files.length ? (
                           <div className="actual-cover">
                             <img

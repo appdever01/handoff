@@ -108,14 +108,16 @@ export const en = {
   termsTitle: "The details, agreed.",
   privateNote:
     "Previews can be captured or saved. Only the original file bytes are kept private.",
-  downloadWindow: "Planned download window: 30 days after verified payment.",
+  downloadWindow:
+    "Downloads remain available for 30 days after payment verification. Unpaid files expire after the deadline.",
   creatorTools: "Prepare your delivery",
   addFiles: "Add original images",
-  fileLimit: "JPEG, PNG, or WebP · 15 MB each · up to 10 files",
+  fileLimit:
+    "Up to 10 files, 15 MB each. PDF previews show the first 3 pages; video previews show up to 12 seconds without sound. PSD, Blender and ZIP originals require a supplied preview.",
   uploading: "Preparing your preview…",
   noFiles: "Your work goes here.",
   noFilesBody:
-    "Upload an original image to create a separate, watermarked preview.",
+    "Upload an original to create a separate, watermarked preview. Source files need a supplied image or PDF preview.",
   scanBlocked:
     "This file is quarantined. A clean malware scan is needed before it can be shared.",
   scanned: "Malware scan passed",
@@ -125,7 +127,7 @@ export const en = {
   publish: "Publish preview link",
   publishing: "Publishing…",
   publishHelp:
-    "Publishing freezes the files, price, terms, and deadline. Clients can review the preview; payments are still disabled.",
+    "Publishing freezes the files, price, terms, and deadline. Only the approved client can pay when test checkout is configured.",
   share: "Copy share link",
   copied: "Link copied",
   invite: "Client access",
