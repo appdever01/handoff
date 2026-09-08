@@ -53,6 +53,19 @@ export function alertConfiguration(
   return { apiKey, from, to };
 }
 
+export function enabledAlertConfiguration(
+  env: NodeJS.ProcessEnv = process.env,
+) {
+  const configuration = alertConfiguration(env);
+  const enabled = env.OPERATIONAL_ALERTS_ENABLED ?? "0";
+  if (enabled !== "0" && enabled !== "1")
+    throw new Error("OPERATIONAL_ALERTS_ENABLED must be 0 or 1");
+  if (enabled === "0") return undefined;
+  if (!configuration)
+    throw new Error("Operational alerts require complete email settings");
+  return configuration;
+}
+
 export async function sendOperationalAlert(
   config: AlertConfiguration,
   status: Status | "test",

@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import {
   alertConfiguration,
+  enabledAlertConfiguration,
   createAlertMonitor,
   sendOperationalAlert,
 } from "../src/alerts.ts";
@@ -48,6 +49,28 @@ test("alerts are disabled by default and configuration requires a safe complete 
       () => alertConfiguration({ ...env, ...change }),
       /Configure RESEND_API_KEY/,
     );
+});
+
+test("saved credentials cannot activate automatic sending without the explicit enable flag", () => {
+  assert.equal(enabledAlertConfiguration({}), undefined);
+  assert.equal(enabledAlertConfiguration(env), undefined);
+  assert.equal(
+    enabledAlertConfiguration({ ...env, OPERATIONAL_ALERTS_ENABLED: "0" }),
+    undefined,
+  );
+  assert.deepEqual(
+    enabledAlertConfiguration({ ...env, OPERATIONAL_ALERTS_ENABLED: "1" }),
+    configuration,
+  );
+  assert.throws(
+    () => enabledAlertConfiguration({ OPERATIONAL_ALERTS_ENABLED: "1" }),
+    /complete email settings/,
+  );
+  assert.throws(
+    () =>
+      enabledAlertConfiguration({ ...env, OPERATIONAL_ALERTS_ENABLED: "true" }),
+    /must be 0 or 1/,
+  );
 });
 
 test("provider requests have fixed generic content, deadlines and idempotency without leaking errors", async () => {
