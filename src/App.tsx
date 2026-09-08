@@ -1285,14 +1285,14 @@ export function App() {
           {(
             [
               ["/drafts", en.drafts, FileImage, "draft"],
-              ["/awaiting-client", en.awaiting, Clock3, "awaiting-client"],
-              ["/ready", en.ready, Wallet, "ready"],
               [
-                "/confirming",
-                workflow.pendingStatus,
+                "/awaiting-client",
+                en.navigation.awaiting,
                 Clock3,
-                "payment-pending",
+                "awaiting-client",
               ],
+              ["/ready", en.navigation.ready, Wallet, "ready"],
+              ["/confirming", en.navigation.pending, Clock3, "payment-pending"],
               ["/paid", workflow.paidStatus, CheckCheck, "paid"],
             ] as const
           ).map(([route, label, Icon, status]) => (
@@ -1313,21 +1313,21 @@ export function App() {
             onClick={() => navigate("/requests")}
           >
             <Inbox size={18} />
-            {en.requests}
+            {en.navigation.requests}
           </button>
           <button
             className={path === "/support" ? "nav-item active" : "nav-item"}
             onClick={() => navigate("/support")}
           >
             <CircleHelp size={18} />
-            {en.supportInbox}
+            {en.navigation.support}
           </button>
           <button
             className={path === "/settings" ? "nav-item active" : "nav-item"}
             onClick={() => navigate("/settings")}
           >
             <Settings size={18} />
-            {en.settings}
+            {en.navigation.settings}
           </button>
         </nav>
         <div className="sidebar-bottom">

@@ -26,9 +26,9 @@ describe("real handoff workspace", () => {
     const html = renderToStaticMarkup(<App />);
     expect(html).toContain(en.loadingWorkspace);
     for (const sample of samples) expect(html).not.toContain(sample.title);
-    expect(html).toContain(en.requests);
-    expect(html).toContain(en.supportInbox);
-    expect(html).toContain(en.settings.replace("&", "&amp;"));
+    expect(html).toContain(en.navigation.requests);
+    expect(html).toContain(en.navigation.support);
+    expect(html).toContain(en.navigation.settings);
   });
 
   it("offers sharing for every published status and deletion only for drafts", () => {
