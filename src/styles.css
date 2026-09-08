@@ -604,6 +604,7 @@ img {
 }
 .projects-heading {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
@@ -621,7 +622,7 @@ img {
 }
 .projects-heading .button {
   font-size: 11px;
-  min-height: 37px;
+  min-height: 40px;
 }
 .project-controls {
   border-bottom: 1px solid var(--line);
@@ -2274,15 +2275,6 @@ dialog::backdrop {
     line-height: 1.6;
     max-width: 180px;
   }
-  .projects-heading > .button {
-    min-width: 36px;
-    padding: 9px;
-    font-size: 0;
-    gap: 0;
-  }
-  .projects-heading > .button svg {
-    width: 17px;
-  }
   .project-controls {
     flex-direction: column;
     gap: 8px;
@@ -2743,8 +2735,11 @@ footer {
 }
 .workspace-actions {
   display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 8px;
   justify-content: flex-end;
-  margin-bottom: 12px;
+  margin-left: auto;
 }
 .project-controls {
   flex-wrap: wrap;

@@ -1631,19 +1631,19 @@ export function App() {
                       </h2>
                       <p>{en.projectsSubtitle}</p>
                     </div>
-                    <button className="button primary" onClick={newDraft}>
-                      <Plus size={17} />
-                      {en.newHandoff}
-                    </button>
-                  </div>
-                  <div className="workspace-actions">
-                    <button
-                      className="button secondary"
-                      onClick={() => setRevision((value) => value + 1)}
-                    >
-                      <RefreshCw size={15} />
-                      {en.refresh}
-                    </button>
+                    <div className="workspace-actions">
+                      <button
+                        className="button secondary"
+                        onClick={() => setRevision((value) => value + 1)}
+                      >
+                        <RefreshCw size={15} />
+                        {en.refresh}
+                      </button>
+                      <button className="button primary" onClick={newDraft}>
+                        <Plus size={17} />
+                        {en.newHandoff}
+                      </button>
+                    </div>
                   </div>
                   <div className="project-controls">
                     <div className="tabs" aria-label={en.all}>
