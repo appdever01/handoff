@@ -36,7 +36,7 @@ Previews can still be captured from a screen. The protection is keeping original
 
 ## Repository structure
 
-This repository uses independent branches and nested clones rather than a shared package workspace. The `main` branch contains the setup script and project entry documents; each surface has its own Git history, dependencies, and validation.
+This repository uses independent branches and nested clones rather than a shared package workspace. The `main` branch contains the README and Git ignore rules; each surface has its own Git history, dependencies, and validation.
 
 | Surface                                                          | Branch     | Responsibility                                                               |
 | ---------------------------------------------------------------- | ---------- | ---------------------------------------------------------------------------- |
@@ -49,7 +49,6 @@ After setup, the workspace looks like this:
 ```text
 handoff/                 # Orchestration repository on main
 ├── README.md
-├── setup.sh
 ├── frontend/            # Independent clone of frontend
 ├── backend/             # Independent clone of backend
 │   └── packages/contracts/
@@ -71,10 +70,12 @@ The backend owns `@handoff/contracts`. The frontend consumes a versioned archive
 ```sh
 git clone https://github.com/appdever01/handoff.git
 cd handoff
-./setup.sh
+git clone --branch frontend --single-branch https://github.com/appdever01/handoff.git frontend
+git clone --branch backend --single-branch https://github.com/appdever01/handoff.git backend
+git clone --branch docs --single-branch https://github.com/appdever01/handoff.git docs
 ```
 
-The setup script clones missing surfaces and preserves existing clones. Install dependencies inside each surface with `npm ci`; there is no root install step.
+For an existing workspace, run only the clone commands for missing surfaces. Install dependencies inside each surface with `npm ci`; there is no root install step.
 
 ### 2. Start the backend sandbox
 
@@ -155,4 +156,4 @@ Keep the hosted app in preview mode until genuine test payments, finality and in
 - [Verified status](https://github.com/appdever01/handoff/blob/docs/STATUS.md): implementation evidence and remaining gates.
 - [Brand assets](https://github.com/appdever01/handoff/tree/frontend/public): the README/social cover and favicon files. The same `og-image.jpg` is used for the README and website social preview.
 
-Before contributing, read the root and owning surface's `AGENTS.md`. Keep changes within that surface, preserve the backend-owned contract boundary, and include validation appropriate to the change.
+Keep contributions within the owning surface, preserve the backend-owned contract boundary, and include validation appropriate to the change. Personal AI instructions and local setup helpers are excluded from version control.
