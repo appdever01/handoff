@@ -36,7 +36,7 @@ Previews can still be captured from a screen. The protection is keeping original
 
 ## Repository structure
 
-This repository uses independent branches and nested clones rather than a shared package workspace. The `main` branch contains the README and Git ignore rules; each surface has its own Git history, dependencies, and validation.
+This repository uses independent branches and nested clones rather than a shared package workspace. The `main` branch contains the README, Git ignore rules, and a Vercel configuration that disables deployments from this branch. Each surface has its own Git history, dependencies, and validation. Vercel deploys the frontend from the `frontend` branch.
 
 | Surface                                                         | Branch     | Responsibility                                                               |
 | --------------------------------------------------------------- | ---------- | ---------------------------------------------------------------------------- |
