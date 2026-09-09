@@ -8,9 +8,9 @@ Handoff helps freelancers share finished work with a client while keeping the or
 
 Built for **Nimiq Pay**, with NIM and Polygon USDT as the intended payment options. Payments are designed to go directly to the freelancer's verified wallet. Handoff controls file access and does not hold client funds.
 
-[Open the preview](https://handoff-nimq.vercel.app) · [Product requirements](https://github.com/appdever01/handoff/blob/docs/PRD.md) · [Verified status](https://github.com/appdever01/handoff/blob/docs/STATUS.md) · [Runbook](https://github.com/appdever01/handoff/blob/docs/RUNBOOK.md)
+[Open the preview](https://handoff-nimq.vercel.app)
 
-> **Current stage: prelaunch preview.** Checkout is disabled on the hosted app, and mainnet payments are not enabled. A local sandbox supports the delivery-to-download journey with simulated payments. Real wallet and test-network payment acceptance, accessibility checks, and operational release gates remain outstanding. See the verified status for the latest evidence.
+> **Current stage: prelaunch preview.** Checkout is disabled on the hosted app, and mainnet payments are not enabled. A local sandbox supports the delivery-to-download journey with simulated payments. Real wallet and test-network payment acceptance, accessibility checks, and operational release gates remain outstanding.
 
 ## How it works
 
@@ -20,7 +20,7 @@ Built for **Nimiq Pay**, with NIM and Polygon USDT as the intended payment optio
 4. **Verify payment.** The backend checks payment details and chain finality independently. A wallet success message cannot unlock files.
 5. **Release the originals.** The entitled client can download the exact published files and return through Purchases while download access remains valid.
 
-The payment steps can be explored in the local sandbox. Genuine network payments still require the release checks linked above.
+The payment steps can be explored in the local sandbox. Genuine network payments still require the release checks described below.
 
 ## What is included
 
@@ -38,11 +38,10 @@ Previews can still be captured from a screen. The protection is keeping original
 
 This repository uses independent branches and nested clones rather than a shared package workspace. The `main` branch contains the README and Git ignore rules; each surface has its own Git history, dependencies, and validation.
 
-| Surface                                                          | Branch     | Responsibility                                                               |
-| ---------------------------------------------------------------- | ---------- | ---------------------------------------------------------------------------- |
-| [Frontend](https://github.com/appdever01/handoff/tree/frontend)  | `frontend` | React 19, TypeScript, Vite, and the client interface                         |
-| [Backend](https://github.com/appdever01/handoff/tree/backend)    | `backend`  | Fastify, SQLite, private files, scanning, previews, and payment verification |
-| [Documentation](https://github.com/appdever01/handoff/tree/docs) | `docs`     | Product requirements, architecture, runbooks, and verified release status    |
+| Surface                                                         | Branch     | Responsibility                                                               |
+| --------------------------------------------------------------- | ---------- | ---------------------------------------------------------------------------- |
+| [Frontend](https://github.com/appdever01/handoff/tree/frontend) | `frontend` | React 19, TypeScript, Vite, and the client interface                         |
+| [Backend](https://github.com/appdever01/handoff/tree/backend)   | `backend`  | Fastify, SQLite, private files, scanning, previews, and payment verification |
 
 After setup, the workspace looks like this:
 
@@ -50,12 +49,11 @@ After setup, the workspace looks like this:
 handoff/                 # Orchestration repository on main
 ├── README.md
 ├── frontend/            # Independent clone of frontend
-├── backend/             # Independent clone of backend
-│   └── packages/contracts/
-└── docs/                # Independent clone of docs
+└── backend/             # Independent clone of backend
+    └── packages/contracts/
 ```
 
-The backend owns `@handoff/contracts`. The frontend consumes a versioned archive from its `vendor/` directory, so it can install and build independently. Run Git and package commands inside the surface that owns the files; the root intentionally ignores the nested clones.
+The backend owns `@handoff/contracts`. The frontend consumes a versioned archive from its `vendor/` directory, so it can install and build independently. Run Git and package commands inside the surface that owns the files; the root intentionally ignores the nested clones. Internal planning documents remain local and are not published on a documentation branch.
 
 ## Run locally
 
@@ -72,7 +70,6 @@ git clone https://github.com/appdever01/handoff.git
 cd handoff
 git clone --branch frontend --single-branch https://github.com/appdever01/handoff.git frontend
 git clone --branch backend --single-branch https://github.com/appdever01/handoff.git backend
-git clone --branch docs --single-branch https://github.com/appdever01/handoff.git docs
 ```
 
 For an existing workspace, run only the clone commands for missing surfaces. Install dependencies inside each surface with `npm ci`; there is no root install step.
@@ -112,7 +109,7 @@ Use **Demo creator** to create a USDT delivery, upload files, approve the previe
 
 Keep sandbox mode on localhost and never expose it through a public tunnel. Its data lives in `backend/.sandbox-data`; ordinary wallet mode uses `backend/.data`.
 
-To use wallet mode, stop the demo API and run `npm start` in `backend`. Checkout remains disabled by default. Follow the [runbook](https://github.com/appdever01/handoff/blob/docs/RUNBOOK.md) for Nimiq Pay, phone pairing, and explicit test-network configuration.
+To use wallet mode, stop the demo API and run `npm start` in `backend`. Checkout remains disabled by default. Phone pairing and test-network payments require separate configuration and acceptance checks.
 
 Stop the frontend and API with Ctrl-C. Stop the scanner with `docker compose stop scanner` from `backend`.
 
@@ -145,15 +142,9 @@ Keep the hosted app in preview mode until genuine test payments, finality and in
 
 - [Railway deployment](https://github.com/appdever01/handoff/blob/backend/deploy/railway/README.md)
 - [Alternative container deployment](https://github.com/appdever01/handoff/blob/backend/deploy/README.md)
-- [Release checklist](https://github.com/appdever01/handoff/blob/docs/LAUNCH.md)
 
-## Documentation and assets
+## Assets and contributions
 
-- [Product requirements](https://github.com/appdever01/handoff/blob/docs/PRD.md): audience, scope, and intended journeys.
-- [Architecture](https://github.com/appdever01/handoff/blob/docs/ARCHITECTURE.md): identity, private files, verification, and retention.
-- [Runbook](https://github.com/appdever01/handoff/blob/docs/RUNBOOK.md): local setup, phone testing, recovery, and support.
-- [Integrations](https://github.com/appdever01/handoff/blob/docs/INTEGRATIONS.md): wallet and optional alert configuration.
-- [Verified status](https://github.com/appdever01/handoff/blob/docs/STATUS.md): implementation evidence and remaining gates.
 - [Brand assets](https://github.com/appdever01/handoff/tree/frontend/public): the README/social cover and favicon files. The same `og-image.jpg` is used for the README and website social preview.
 
 Keep contributions within the owning surface, preserve the backend-owned contract boundary, and include validation appropriate to the change. Personal AI instructions and local setup helpers are excluded from version control.
