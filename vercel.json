@@ -10,6 +10,14 @@
       "*": false
     }
   },
+  "redirects": [
+    {
+      "source": "/:path*",
+      "has": [{ "type": "host", "value": "handoff-ochre-mu.vercel.app" }],
+      "destination": "https://handoff-nimq.vercel.app/:path*",
+      "permanent": true
+    }
+  ],
   "rewrites": [
     {
       "source": "/api/:path*",
