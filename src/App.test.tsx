@@ -29,6 +29,10 @@ describe("real handoff workspace", () => {
     expect(html).toContain(en.navigation.requests);
     expect(html).toContain(en.navigation.support);
     expect(html).toContain(en.navigation.settings);
+    expect(html).toContain(en.projectsTitle);
+    expect(html).not.toContain('class="hero"');
+    expect(html).not.toContain('class="brand-dot"');
+    expect(html).not.toContain('class="sidebar-note"');
   });
 
   it("offers sharing for every published status and deletion only for drafts", () => {

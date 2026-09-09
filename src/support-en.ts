@@ -2,8 +2,7 @@ import type { SupportTicket } from "@handoff/contracts";
 
 export const supportText = {
   title: "Support requests",
-  description:
-    "Track the help and refund requests you have saved for your deliveries.",
+  description: "View your saved help and refund requests.",
   signIn: "Connect your wallet to see your requests.",
   refresh: "Refresh requests",
   loading: "Loading requests…",
@@ -13,7 +12,7 @@ export const supportText = {
   open: "Open",
   resolved: "Resolved",
   declined: "Declined",
-  refundRecorded: "Refund reference recorded",
+  refundRecorded: "Refund reference added",
   access: "File access",
   refund: "Refund",
   other: "Other",
@@ -23,7 +22,7 @@ export const supportText = {
   delivery: "Open delivery",
   reference: "Refund reference",
   refundNote:
-    "A recorded reference does not confirm a refund. Check it with the creator.",
+    "A refund reference does not prove money was returned. Check it with the creator.",
   error: "Could not load your requests. Try again.",
 } as const;
 

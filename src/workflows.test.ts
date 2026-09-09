@@ -243,6 +243,6 @@ test("wallet session change during account selection prevents NIM broadcast", as
       { ...intent, currency: "NIM", network: "nimiq:testalbatross" },
       () => active,
     ),
-  ).rejects.toThrow("session changed");
+  ).rejects.toThrow("sign-in changed");
   expect(send).not.toHaveBeenCalled();
 });

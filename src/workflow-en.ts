@@ -1,11 +1,11 @@
 export const workflow = {
   sessionChanged:
-    "Your wallet session changed. Open this delivery again before paying.",
+    "Your sign-in changed. Open this delivery again before paying.",
   invalidIntent:
     "The payment details are invalid. Refresh this delivery before paying.",
   expiredIntent:
     "The payment deadline has passed. Check payment status before contacting the creator.",
-  walletOnly: "Approve payment from your wallet session on your phone.",
+  walletOnly: "Approve the payment in your phone’s wallet.",
   retryWallet: "Open wallet again",
   retryHelp:
     "Check your wallet history first. Only try again if you cancelled or no payment was sent.",
@@ -40,29 +40,29 @@ export const workflow = {
   pair: "Pair a desktop",
   upload: "Upload and prepare deliveries",
   download: "Download purchases",
-  createPair: "Create a five-minute pairing code",
+  createPair: "Create pairing code",
   pairHelp:
-    "Open this link in your signed-in phone. Check the origin, role and matching phrase before approving. Scanning alone grants no access.",
+    "This code expires in five minutes. Open the link on your phone and sign in. Check the website address, access level, and matching phrase before approving. Scanning the code alone does not give access.",
   phrase: "Matching phrase",
   approve: "Approve this desktop",
   waiting: "Waiting for phone approval…",
   paired: "Desktop paired for one hour.",
   expired: "This pairing has expired. Create a new code.",
   devices: "Paired desktops",
-  revoke: "Revoke access",
+  revoke: "Remove access",
   signIn: "Sign in with your wallet on the phone to approve.",
   role: "Desktop access",
-  origin: "Site origin",
+  origin: "Website address",
   error: "Something went wrong. Try again.",
-  demo: "LOCAL SANDBOX — simulated identities and payments. No money moves. Malware screening remains required.",
+  demo: "Demo mode uses test accounts and pretend payments. No money is sent. Files still need to pass a security scan.",
   demoCreator: "Demo creator",
   demoClient: "Demo client",
-  pay: "Pay on testnet",
-  simulate: "Simulate demo payment",
+  pay: "Make test payment",
+  simulate: "Try demo payment",
   confirming:
-    "Checking the chain for finalized payment. You can close this page and return later.",
+    "Checking that payment is confirmed on the network. You can close this page and return later.",
   approval: "Review and approve in your wallet…",
-  sent: "Payment sent. Waiting for independent verification.",
+  sent: "Payment sent. Handoff is checking it on the network.",
   recover: "Check payment status",
   receipt: "Payment receipt",
   paid: "Payment verified",
@@ -72,10 +72,9 @@ export const workflow = {
   access: "Download requests",
   noAccess: "No original download requests yet.",
   testOnly:
-    "Test networks only. Do not send real money or pay this address manually.",
-  fees: "Payment goes directly to the creator. Handoff adds no platform fee; the wallet shows network fees before approval.",
-  unavailable:
-    "Checkout is disabled until test-network verification is configured.",
+    "Test payments only. Do not send real money or pay this address manually.",
+  fees: "Payment goes straight to the creator. Handoff charges no fee. Your wallet shows any network fee before you approve.",
+  unavailable: "Test payments are currently unavailable.",
   clientApproval:
     "Your wallet must be approved by the creator before checkout.",
   purchases: "Your purchases",
@@ -93,7 +92,6 @@ export const workflow = {
   refund: "Refund",
   other: "Other",
   supplied: "Upload an image or PDF preview",
-  suppliedRequired:
-    "A creator-supplied preview is required before publication.",
+  suppliedRequired: "Add a preview before publishing.",
   refresh: "Refresh",
 };

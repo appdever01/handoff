@@ -13,7 +13,5 @@ test("operator-declined and refund-recorded requests retain their actual outcome
     expect(supportStatusLabels[status]).toBeTruthy();
   expect(supportStatusLabels.declined).toBe("Declined");
   expect(supportStatusLabels.declined).not.toBe(supportStatusLabels.resolved);
-  expect(supportStatusLabels["refund-recorded"]).toBe(
-    "Refund reference recorded",
-  );
+  expect(supportStatusLabels["refund-recorded"]).toBe("Refund reference added");
 });

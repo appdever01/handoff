@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useId,
   useRef,
   useState,
   type FormEvent,
@@ -54,7 +55,6 @@ import {
   filterHandoffs,
   formatBytes,
   formatDate,
-  shortAddress,
   nimiqPayUrl,
 } from "./lib";
 import {
@@ -87,14 +87,34 @@ function Modal({
   close: () => void;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
+  const titleId = useId();
   useEffect(() => {
     const dialog = ref.current!;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const viewport = window.visualViewport;
+    const resize = () => {
+      dialog.style.setProperty(
+        "--modal-height",
+        `${viewport?.height ?? window.innerHeight}px`,
+      );
+      dialog.style.setProperty("--modal-top", `${viewport?.offsetTop ?? 0}px`);
+    };
+    resize();
+    viewport?.addEventListener("resize", resize);
+    viewport?.addEventListener("scroll", resize);
     dialog.showModal();
-    return () => dialog.close();
+    return () => {
+      dialog.close();
+      document.body.style.overflow = previousOverflow;
+      viewport?.removeEventListener("resize", resize);
+      viewport?.removeEventListener("scroll", resize);
+    };
   }, []);
   return (
     <dialog
       ref={ref}
+      aria-labelledby={titleId}
       onCancel={close}
       onClick={(event) => {
         if (event.target === ref.current) close();
@@ -102,12 +122,12 @@ function Modal({
     >
       <div className="modal-content">
         <div className="modal-heading">
-          <h2>{title}</h2>
+          <h2 id={titleId}>{title}</h2>
           <button className="icon-button" aria-label={en.close} onClick={close}>
             <X size={20} />
           </button>
         </div>
-        {children}
+        <div className="modal-body">{children}</div>
       </div>
     </dialog>
   );
@@ -1263,7 +1283,6 @@ export function App() {
             <ArrowDownLeft size={23} />
           </span>
           {en.brand}
-          <span className="brand-dot">®</span>
         </button>
         <div className="workspace-label">{en.workspace}</div>
         <nav aria-label={en.workspace}>
@@ -1331,10 +1350,6 @@ export function App() {
           </button>
         </nav>
         <div className="sidebar-bottom">
-          <div className="sidebar-note">
-            <div className="little-spark">✳</div>
-            <p>{en.tagline}</p>
-          </div>
           <button
             className="nav-item help-link"
             onClick={() => navigate("/how-it-works")}
@@ -1365,10 +1380,6 @@ export function App() {
             </button>
             {user ? (
               <>
-                <span className="connected-address">
-                  <span className="connection-dot" />
-                  {shortAddress(user.address)}
-                </span>
                 <button
                   className="icon-button"
                   onClick={() => void logout()}
@@ -1506,79 +1517,15 @@ export function App() {
                   ))}
                 </div>
                 <p className="notice">{en.howNote}</p>
+                <button
+                  className="button secondary"
+                  onClick={() => navigate("/example/olive")}
+                >
+                  {en.viewExample}
+                </button>
               </>
             ) : (
               <>
-                <section className="hero">
-                  <div className="hero-copy">
-                    <p className="eyebrow">
-                      <span className="tiny-star">✳</span>
-                      {en.welcome}
-                    </p>
-                    <h1>
-                      {en.heroTitle.split("\n").map((line) => (
-                        <span key={line}>{line}</span>
-                      ))}
-                    </h1>
-                    <p>{en.heroBody}</p>
-                    <div className="hero-actions">
-                      <button className="button lime" onClick={newDraft}>
-                        <Plus size={18} />
-                        {en.newHandoff}
-                      </button>
-                      <button
-                        className="hero-text-button"
-                        onClick={() => navigate("/example/olive")}
-                      >
-                        {en.viewExample}
-                        <ArrowUpRight size={16} />
-                      </button>
-                    </div>
-                    <div className="hero-footnote">
-                      <ShieldCheck size={14} />
-                      {en.heroNote}
-                    </div>
-                  </div>
-                  <div className="hero-visual" aria-hidden="true">
-                    <div className="hero-orbit orbit-one" />
-                    <div className="hero-orbit orbit-two" />
-                    <div className="floating-file rear">
-                      <span>THE FINAL FILES</span>
-                      <div className="file-lines" />
-                      <LockKeyhole size={21} />
-                    </div>
-                    <div className="floating-file front">
-                      <div className="mini-art">
-                        <span>olive</span>
-                        <div className="mini-leaf" />
-                      </div>
-                      <div className="mini-card-footer">
-                        <span>
-                          Something worth
-                          <br />
-                          <strong>handing over.</strong>
-                        </span>
-                        <span className="mini-arrow">
-                          <ArrowUpRight size={19} />
-                        </span>
-                      </div>
-                    </div>
-                    <div className="secure-float">
-                      <span>
-                        <Check size={14} />
-                      </span>
-                      {en.protected}
-                    </div>
-                    <div className="hero-steps">
-                      <span>01 {en.preview}</span>
-                      <i />
-                      <span>02 {en.payment}</span>
-                      <i />
-                      <span>03 {en.originals}</span>
-                    </div>
-                  </div>
-                </section>
-
                 <section className="stats" aria-label={en.workspace}>
                   <div>
                     <span className="stat-icon">
@@ -1586,9 +1533,7 @@ export function App() {
                     </span>
                     <div>
                       <p>{en.total}</p>
-                      <strong>
-                        {items.length.toString().padStart(2, "0")}
-                      </strong>
+                      <strong>{items.length}</strong>
                     </div>
                     <span className="stat-detail">{en.all}</span>
                   </div>
@@ -1599,10 +1544,10 @@ export function App() {
                     <div>
                       <p>{en.awaiting}</p>
                       <strong>
-                        {items
-                          .filter((h) => h.status === "awaiting-client")
-                          .length.toString()
-                          .padStart(2, "0")}
+                        {
+                          items.filter((h) => h.status === "awaiting-client")
+                            .length
+                        }
                       </strong>
                     </div>
                     <span className="stat-dot amber-dot" />
@@ -1614,10 +1559,7 @@ export function App() {
                     <div>
                       <p>{en.drafts}</p>
                       <strong>
-                        {items
-                          .filter((h) => h.status === "draft")
-                          .length.toString()
-                          .padStart(2, "0")}
+                        {items.filter((h) => h.status === "draft").length}
                       </strong>
                     </div>
                     <span className="stat-dot" />
@@ -1626,9 +1568,9 @@ export function App() {
                 <section className="projects">
                   <div className="projects-heading">
                     <div>
-                      <h2>
+                      <h1>
                         {sectionFilter === "all" ? en.projectsTitle : page}
-                      </h2>
+                      </h1>
                       <p>{en.projectsSubtitle}</p>
                     </div>
                     <div className="workspace-actions">
@@ -1819,11 +1761,7 @@ export function App() {
               </p>
             )}
             <footer>
-              <span>
-                {en.brand}
-                <span className="footer-star">✳</span>
-                {en.tagline}
-              </span>
+              <span>{en.brand}</span>
               <RuntimeStatus revision={revision} />
             </footer>
           </div>
