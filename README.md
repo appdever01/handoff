@@ -6,4 +6,4 @@ Use Node.js 24.15+ and Docker Desktop. Run `npm ci`, `npm run services`, then `n
 
 `npm test` uses at most two workers. `npm run typecheck`, `npm run test:services`, and `npm run test:http` cover code, real local services and the built frontend/API respectively. The HTTP smoke requires the sibling frontend build. `npm run ops -- backup|restore|support|resolve-support ...` provides offline maintenance.
 
-Backend owns `packages/contracts` version 0.2.0; frontend consumes its versioned archive. See [RUNBOOK](../docs/RUNBOOK.md) for exact setup, phone testing, backup/restore and support instructions, and [STATUS](../docs/STATUS.md) for unresolved P0 gates.
+Backend owns `packages/contracts`; frontend consumes its versioned archive. See the [main README](https://github.com/appdever01/handoff/blob/main/README.md) for local setup and outstanding release gates. Internal runbooks and planning documents are retained locally.
