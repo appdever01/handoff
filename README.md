@@ -1,4 +1,4 @@
-![Handoff — Show the work. Get paid. Release the originals.](https://raw.githubusercontent.com/appdever01/handoff/frontend/public/og-image.jpg)
+![Handoff — Show the work. Get paid. Release the originals.](https://raw.githubusercontent.com/appdever01/handoff/frontend/public/og-image.jpg?v=delivery-desk)
 
 # Handoff
 
