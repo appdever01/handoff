@@ -19,3 +19,4 @@ setup.sh
 .cursorrules
 .cursor/rules/
 .github/copilot-instructions.md
+.openai/

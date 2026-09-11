@@ -10,7 +10,7 @@ Use Node.js 24.15 or newer. Run `npm ci` and `npm run dev`, then open `http://lo
 
 ## Build and checks
 
-`npm test` runs focused tests with two Vitest workers. `npm run build` runs the TypeScript check then emits the static site under `dist`. `npm run typecheck` checks types only. Fonts are bundled locally. Responsive rules and reduced-motion support are included; visual/browser accessibility verification is still pending.
+`npm test` runs focused tests with two Vitest workers. `npm run build` runs the TypeScript check then emits the static site under `dist`. `npm run typecheck` checks types only. The interface uses system fonts. Responsive rules and reduced-motion support are included; visual/browser accessibility verification is still pending.
 
 The frontend can install and build independently from its branch: the versioned contract archive lives in `vendor/` and is produced from the backend-owned package. Do not edit another schema copy here.
 
@@ -20,8 +20,8 @@ The current continuation adds pairing QR/phrase approval and revocation, a clear
 
 ## Brand assets and social previews
 
-`public/og-image.jpg` is the 1200 × 630 README cover and social preview. `index.html` includes Open Graph and Twitter card metadata using the main address, `https://handoff-nimq.vercel.app`. Shared delivery pages use the same public brand artwork; client files and delivery details are not embedded in social metadata.
+`public/og-image.jpg` is the 1200 × 630 README cover and social preview, using the ink, orange, and paper Delivery Desk identity. `index.html` includes Open Graph and Twitter card metadata using the main address, `https://handoff-nimq.vercel.app`. Shared delivery pages use the same public brand artwork; client files and delivery details are not embedded in social metadata.
 
-`public/favicon.svg` adapts the existing two-arrow mark in forest green and lime. `favicon.ico` includes 16, 32, and 48 pixel fallbacks; `favicon-32x32.png` and `apple-touch-icon.png` provide standalone PNG exports. Vite copies these files into the build without importing them into application code.
+`public/favicon.svg` uses the Delivery Desk mark: a single ink arrow on vivid orange. `favicon.ico` includes 16, 32, and 48 pixel fallbacks; `favicon-32x32.png` and `apple-touch-icon.png` provide standalone PNG exports. Vite copies these files into the build without importing them into application code.
 
-If the main hostname changes, update both image URLs in `index.html`. For GitHub's repository social preview, upload `public/og-image.jpg` in the repository's General settings; website metadata does not configure GitHub's preview. The cover was made with built-in image generation; the favicon adapts the app's existing arrows.
+If the main hostname changes, update both image URLs in `index.html`. For GitHub's repository social preview, upload `public/og-image.jpg` in the repository's General settings; website metadata does not configure GitHub's preview. The cover was made with built-in image generation; the favicon matches the app's arrow mark.

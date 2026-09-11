@@ -7,14 +7,11 @@ import {
   type ReactNode,
 } from "react";
 import {
-  ArrowDownLeft,
   ArrowLeft,
   ArrowRight,
   ArrowUpRight,
   Check,
   CheckCheck,
-  Clock3,
-  Inbox,
   RefreshCw,
   Settings,
   Trash2,
@@ -28,7 +25,6 @@ import {
   LoaderCircle,
   LockKeyhole,
   LogOut,
-  Package,
   Plus,
   Search,
   ShieldCheck,
@@ -186,6 +182,56 @@ function Artwork({
       )}
       <div className="sample-watermark">HANDOFF PREVIEW</div>
     </div>
+  );
+}
+
+function DeskWelcome({
+  connect,
+  example,
+}: {
+  connect: () => void;
+  example: () => void;
+}) {
+  return (
+    <section className="desk-welcome" aria-labelledby="desk-welcome-title">
+      <div className="desk-welcome-copy">
+        <span className="desk-kicker">{en.welcomeLabel}</span>
+        <h2 id="desk-welcome-title">{en.deskWelcomeTitle}</h2>
+        <p>{en.deskWelcomeBody}</p>
+        <div className="desk-welcome-actions">
+          <button className="button primary" onClick={connect}>
+            {en.wallet}
+            <ArrowUpRight size={18} />
+          </button>
+          <button className="desk-example" onClick={example}>
+            {en.viewExample}
+            <ArrowRight size={16} />
+          </button>
+        </div>
+        <span className="desk-welcome-note">
+          <LockKeyhole size={14} />
+          {en.signInNote}
+        </span>
+      </div>
+      <div className="desk-sequence">
+        <div className="desk-sequence-heading">
+          <span>{en.sequenceTitle}</span>
+          <ArrowUpRight size={22} />
+        </div>
+        <ol>
+          {en.deskSteps.map(([title, body], index) => (
+            <li key={title}>
+              <span className="desk-step-index">0{index + 1}</span>
+              <div>
+                <h3>{title}</h3>
+                <p>{body}</p>
+              </div>
+            </li>
+          ))}
+        </ol>
+        <p className="desk-sequence-note">{en.sequenceNote}</p>
+      </div>
+    </section>
   );
 }
 
@@ -527,6 +573,24 @@ function Delivery({
           {en.sampleNotice}
         </div>
       )}
+      <ol className="delivery-stages" aria-label={en.deliveryProgress}>
+        {[en.preview, en.payment, en.originals].map((label, index) => {
+          const stage =
+            handoff.status === "paid"
+              ? 2
+              : handoff.status === "ready" ||
+                  handoff.status === "payment-pending"
+                ? 1
+                : 0;
+          return (
+            <li key={label} aria-current={stage === index ? "step" : undefined}>
+              <span>0{index + 1}</span>
+              {label}
+              <ArrowRight size={16} aria-hidden="true" />
+            </li>
+          );
+        })}
+      </ol>
       <div className="delivery-grid">
         <div className="delivery-main">
           <div className="preview-frame">
@@ -1272,98 +1336,60 @@ export function App() {
       <a className="skip-link" href="#main">
         {en.skip}
       </a>
-      <aside className="sidebar">
+      <header className="desk-masthead">
         <button
-          className="brand"
+          className="desk-brand"
           onClick={() => navigate("/")}
           aria-label={en.brand}
         >
-          <span className="brand-mark">
-            <ArrowUpRight size={23} />
-            <ArrowDownLeft size={23} />
+          <span className="desk-mark" aria-hidden="true">
+            <ArrowUpRight size={26} />
           </span>
           {en.brand}
+          <span className="desk-brand-label">{en.brandLabel}</span>
         </button>
-        <div className="workspace-label">{en.workspace}</div>
-        <nav aria-label={en.workspace}>
-          <button
-            className={path === "/" || detail ? "nav-item active" : "nav-item"}
-            onClick={() => navigate("/")}
-          >
-            <FolderClosed size={19} />
-            {en.handoffs}
-            <span className="nav-count">{items.length}</span>
-          </button>
-          <button
-            className={path === "/purchases" ? "nav-item active" : "nav-item"}
-            onClick={() => navigate("/purchases")}
-          >
-            <Package size={19} />
-            {en.purchases}
-          </button>
-          {(
-            [
-              ["/drafts", en.drafts, FileImage, "draft"],
-              [
-                "/awaiting-client",
-                en.navigation.awaiting,
-                Clock3,
-                "awaiting-client",
-              ],
-              ["/ready", en.navigation.ready, Wallet, "ready"],
-              ["/confirming", en.navigation.pending, Clock3, "payment-pending"],
-              ["/paid", workflow.paidStatus, CheckCheck, "paid"],
-            ] as const
-          ).map(([route, label, Icon, status]) => (
+        <nav className="desk-nav" aria-label={en.workspace}>
+          {[
+            ["/", en.handoffs],
+            ["/purchases", en.purchases],
+            ["/requests", en.navigation.requests],
+          ].map(([route, label]) => (
             <button
-              key={String(route)}
-              className={path === route ? "nav-item active" : "nav-item"}
-              onClick={() => navigate(String(route))}
+              key={route}
+              aria-current={
+                (
+                  route === "/"
+                    ? detail || path === "/" || sectionFilter !== "all"
+                    : path === route
+                )
+                  ? "page"
+                  : undefined
+              }
+              onClick={() => navigate(route)}
             >
-              <Icon size={18} />
-              {String(label)}
-              <span className="nav-count">
-                {items.filter((item) => item.status === status).length}
-              </span>
+              {label}
             </button>
           ))}
+        </nav>
+        <div className="desk-utilities">
           <button
-            className={path === "/requests" ? "nav-item active" : "nav-item"}
-            onClick={() => navigate("/requests")}
-          >
-            <Inbox size={18} />
-            {en.navigation.requests}
-          </button>
-          <button
-            className={path === "/support" ? "nav-item active" : "nav-item"}
+            className="icon-button"
+            aria-label={en.navigation.support}
+            title={en.navigation.support}
             onClick={() => navigate("/support")}
           >
-            <CircleHelp size={18} />
-            {en.navigation.support}
+            <CircleHelp size={19} />
           </button>
           <button
-            className={path === "/settings" ? "nav-item active" : "nav-item"}
+            className="icon-button"
+            aria-label={en.navigation.settings}
+            title={en.navigation.settings}
             onClick={() => navigate("/settings")}
           >
-            <Settings size={18} />
-            {en.navigation.settings}
+            <Settings size={19} />
           </button>
-        </nav>
-        <div className="sidebar-bottom">
-          <button
-            className="nav-item help-link"
-            onClick={() => navigate("/how-it-works")}
-          >
-            <CircleHelp size={18} />
-            {en.howItWorks}
-            <ArrowUpRight size={15} />
-          </button>
-          <div className="nimiq-credit">
-            <span className="nimiq-dot" />
-            {en.builtFor}
-          </div>
         </div>
-      </aside>
+      </header>
       <div className="main-shell">
         <header className="topbar">
           <div className="breadcrumb">
@@ -1526,48 +1552,10 @@ export function App() {
               </>
             ) : (
               <>
-                <section className="stats" aria-label={en.workspace}>
-                  <div>
-                    <span className="stat-icon">
-                      <FolderClosed size={19} />
-                    </span>
-                    <div>
-                      <p>{en.total}</p>
-                      <strong>{items.length}</strong>
-                    </div>
-                    <span className="stat-detail">{en.all}</span>
-                  </div>
-                  <div>
-                    <span className="stat-icon amber">
-                      <ArrowUpRight size={19} />
-                    </span>
-                    <div>
-                      <p>{en.awaiting}</p>
-                      <strong>
-                        {
-                          items.filter((h) => h.status === "awaiting-client")
-                            .length
-                        }
-                      </strong>
-                    </div>
-                    <span className="stat-dot amber-dot" />
-                  </div>
-                  <div>
-                    <span className="stat-icon gray">
-                      <FileImage size={19} />
-                    </span>
-                    <div>
-                      <p>{en.drafts}</p>
-                      <strong>
-                        {items.filter((h) => h.status === "draft").length}
-                      </strong>
-                    </div>
-                    <span className="stat-dot" />
-                  </div>
-                </section>
                 <section className="projects">
                   <div className="projects-heading">
                     <div>
+                      <p className="desk-kicker">{en.deskKicker}</p>
                       <h1>
                         {sectionFilter === "all" ? en.projectsTitle : page}
                       </h1>
@@ -1587,76 +1575,92 @@ export function App() {
                       </button>
                     </div>
                   </div>
-                  <div className="project-controls">
-                    <div className="tabs" aria-label={en.all}>
-                      {[
-                        ["all", en.all],
-                        ["awaiting-client", en.awaiting],
-                        ["draft", en.drafts],
-                        ["ready", en.ready],
-                        ["payment-pending", workflow.pendingStatus],
-                        ["paid", workflow.paidStatus],
-                      ].map(([key, label]) => (
-                        <button
-                          key={key}
-                          onClick={() => {
-                            setFilter(key);
-                            if (sectionFilter !== "all") navigate("/");
-                          }}
-                          aria-pressed={activeFilter === key}
-                          className={activeFilter === key ? "active" : ""}
-                        >
-                          {label}
-                          {key === "all" && <span>{items.length}</span>}
-                        </button>
-                      ))}
-                    </div>
-                    <div className="search-controls">
-                      <label className="search-input">
-                        <Search size={16} />
-                        <input
-                          value={search}
-                          onChange={(event) => setSearch(event.target.value)}
-                          placeholder={en.search}
-                          aria-label={en.search}
-                        />
-                      </label>
-                      <div className="view-toggle">
-                        <button
-                          onClick={() => setView("grid")}
-                          className={view === "grid" ? "selected" : ""}
-                          aria-label={en.grid}
-                          aria-pressed={view === "grid"}
-                        >
-                          <Grid2X2 size={17} />
-                        </button>
-                        <button
-                          onClick={() => setView("list")}
-                          className={view === "list" ? "selected" : ""}
-                          aria-label={en.list}
-                          aria-pressed={view === "list"}
-                        >
-                          <List size={17} />
-                        </button>
+                  {user && (
+                    <>
+                      <div className="project-controls">
+                        <div className="tabs" aria-label={en.all}>
+                          {[
+                            ["all", en.all],
+                            ["awaiting-client", en.awaiting],
+                            ["draft", en.drafts],
+                            ["ready", en.ready],
+                            ["payment-pending", workflow.pendingStatus],
+                            ["paid", workflow.paidStatus],
+                          ].map(([key, label]) => (
+                            <button
+                              key={key}
+                              onClick={() => {
+                                setFilter(key);
+                                if (sectionFilter !== "all") navigate("/");
+                              }}
+                              aria-pressed={activeFilter === key}
+                              className={activeFilter === key ? "active" : ""}
+                            >
+                              {label}
+                              {listLoaded && !listError && (
+                                <span>
+                                  {key === "all"
+                                    ? items.length
+                                    : items.filter(
+                                        (item) => item.status === key,
+                                      ).length}
+                                </span>
+                              )}
+                            </button>
+                          ))}
+                        </div>
+                        <div className="search-controls">
+                          <label className="search-input">
+                            <Search size={16} />
+                            <input
+                              value={search}
+                              onChange={(event) =>
+                                setSearch(event.target.value)
+                              }
+                              placeholder={en.search}
+                              aria-label={en.search}
+                            />
+                          </label>
+                          <div className="view-toggle">
+                            <button
+                              onClick={() => setView("grid")}
+                              className={view === "grid" ? "selected" : ""}
+                              aria-label={en.grid}
+                              aria-pressed={view === "grid"}
+                            >
+                              <Grid2X2 size={17} />
+                            </button>
+                            <button
+                              onClick={() => setView("list")}
+                              className={view === "list" ? "selected" : ""}
+                              aria-label={en.list}
+                              aria-pressed={view === "list"}
+                            >
+                              <List size={17} />
+                            </button>
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                  </div>
-                  <div className="results-bar">
-                    <span>
-                      {filtered.length} {en.handoffs.toLowerCase()}
-                    </span>
-                    <label className="sort-select">
-                      <select
-                        aria-label={en.newest}
-                        value={sort}
-                        onChange={(event) => setSort(event.target.value)}
-                      >
-                        <option value="newest">{en.newest}</option>
-                        <option value="oldest">{en.oldest}</option>
-                      </select>
-                      <ChevronDown size={14} />
-                    </label>
-                  </div>
+                      <div className="results-bar">
+                        <span>
+                          {listLoaded && !listError
+                            ? `${filtered.length} ${en.handoffs.toLowerCase()}`
+                            : en.privateWorkspace}
+                        </span>
+                        <label className="sort-select">
+                          <select
+                            aria-label={en.newest}
+                            value={sort}
+                            onChange={(event) => setSort(event.target.value)}
+                          >
+                            <option value="newest">{en.newest}</option>
+                            <option value="oldest">{en.oldest}</option>
+                          </select>
+                          <ChevronDown size={14} />
+                        </label>
+                      </div>
+                    </>
+                  )}
                   {(!loaded || (user && !listLoaded)) && (
                     <p role="status" className="loading">
                       <LoaderCircle className="spin" />
@@ -1669,17 +1673,10 @@ export function App() {
                     </p>
                   )}
                   {loaded && !user && (
-                    <div className="empty-state small">
-                      <Wallet size={28} />
-                      <h3>{en.connectWorkspace}</h3>
-                      <p>{en.connectWorkspaceBody}</p>
-                      <button
-                        className="button primary"
-                        onClick={() => setWalletOpen(true)}
-                      >
-                        {en.wallet}
-                      </button>
-                    </div>
+                    <DeskWelcome
+                      connect={() => setWalletOpen(true)}
+                      example={() => navigate("/example/olive")}
+                    />
                   )}
                   {loaded && user?.scope === "download" && (
                     <p className="notice">{en.downloadOnly}</p>
@@ -1761,7 +1758,16 @@ export function App() {
               </p>
             )}
             <footer>
-              <span>{en.brand}</span>
+              <span className="desk-footer-brand">
+                {en.brand} <span>{en.builtFor}</span>
+              </span>
+              <button
+                className="footer-help"
+                onClick={() => navigate("/how-it-works")}
+              >
+                {en.howItWorks}
+                <ArrowUpRight size={14} />
+              </button>
               <RuntimeStatus revision={revision} />
             </footer>
           </div>
