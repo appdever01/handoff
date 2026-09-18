@@ -62,6 +62,7 @@ import {
 } from "./workflows";
 import { workflow } from "./workflow-en";
 import { samples } from "./samples";
+import { showExamples } from "./demo";
 
 const statuses = {
   draft: en.draft,
@@ -72,6 +73,20 @@ const statuses = {
 };
 const messageOf = (error: unknown) =>
   error instanceof Error ? error.message : en.networkError;
+
+function CoinMark({ currency }: { currency: Currency }) {
+  const nim = currency === "NIM";
+  return (
+    <span className={`coin ${nim ? "nim" : "usdt"}`}>
+      <img
+        src={nim ? "/logos/nim.svg" : "/logos/usdt.svg"}
+        alt={nim ? "NIM" : "USDT"}
+        width={24}
+        height={24}
+      />
+    </span>
+  );
+}
 
 function Modal({
   title,
@@ -190,7 +205,7 @@ function DeskWelcome({
   example,
 }: {
   connect: () => void;
-  example: () => void;
+  example?: () => void;
 }) {
   return (
     <section className="desk-welcome" aria-labelledby="desk-welcome-title">
@@ -203,10 +218,12 @@ function DeskWelcome({
             {en.wallet}
             <ArrowUpRight size={18} />
           </button>
-          <button className="desk-example" onClick={example}>
-            {en.viewExample}
-            <ArrowRight size={16} />
-          </button>
+          {example && (
+            <button className="desk-example" onClick={example}>
+              {en.viewExample}
+              <ArrowRight size={16} />
+            </button>
+          )}
         </div>
         <span className="desk-welcome-note">
           <LockKeyhole size={14} />
@@ -264,12 +281,12 @@ function WalletModal({
       </a>
       <div className="wallet-options">
         <button disabled={busy} onClick={() => void signIn("NIM")}>
-          <span className="coin nim">N</span>
+          <CoinMark currency="NIM" />
           {en.connectNim}
           <ArrowRight size={18} />
         </button>
         <button disabled={busy} onClick={() => void signIn("USDT")}>
-          <span className="coin usdt">₮</span>
+          <CoinMark currency="USDT" />
           {en.connectUsdt}
           <ArrowRight size={18} />
         </button>
@@ -673,11 +690,7 @@ function Delivery({
               <span>{handoff.currency}</span>
             </p>
             <div className="network">
-              <span
-                className={`coin ${handoff.currency === "NIM" ? "nim" : "usdt"}`}
-              >
-                {handoff.currency === "NIM" ? "N" : "₮"}
-              </span>
+              <CoinMark currency={handoff.currency} />
               {handoff.currency === "NIM" ? "Nimiq" : "Polygon"}
             </div>
             <div className="divider" />
@@ -1214,7 +1227,9 @@ export function App() {
     if (!loaded) return;
     const parts = path.split("/");
     if (parts[1] === "example") {
-      const sample = samples.find((h) => h.id === parts[2]);
+      const sample = showExamples
+        ? samples.find((h) => h.id === parts[2])
+        : undefined;
       setSelected(sample);
       if (!sample) setError(en.expired);
       return;
@@ -1543,12 +1558,25 @@ export function App() {
                   ))}
                 </div>
                 <p className="notice">{en.howNote}</p>
-                <button
-                  className="button secondary"
-                  onClick={() => navigate("/example/olive")}
-                >
-                  {en.viewExample}
-                </button>
+                {showExamples && (
+                  <div className="example-grid">
+                    {samples.map((handoff) => (
+                      <button
+                        key={handoff.id}
+                        className="example-card"
+                        onClick={() => navigate(`/example/${handoff.id}`)}
+                      >
+                        <strong>{handoff.title}</strong>
+                        <span>
+                          {new Intl.NumberFormat("en", {
+                            maximumFractionDigits: 6,
+                          }).format(Number(handoff.amount))}{" "}
+                          {handoff.currency}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
               </>
             ) : (
               <>
@@ -1675,7 +1703,11 @@ export function App() {
                   {loaded && !user && (
                     <DeskWelcome
                       connect={() => setWalletOpen(true)}
-                      example={() => navigate("/example/olive")}
+                      example={
+                        showExamples
+                          ? () => navigate("/example/olive")
+                          : undefined
+                      }
                     />
                   )}
                   {loaded && user?.scope === "download" && (

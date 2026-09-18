@@ -35,6 +35,20 @@ describe("real handoff workspace", () => {
     expect(html).not.toContain('class="sidebar-note"');
   });
 
+  it("lists labelled example deliveries on How it works", () => {
+    vi.stubGlobal("location", {
+      pathname: "/how-it-works",
+      origin: "https://handoff.test",
+    });
+    const html = renderToStaticMarkup(<App />);
+    expect(html).toContain("Olive Studio");
+    expect(html).toContain("Form &amp; Field");
+    expect(html).toContain("Kinfolk");
+    expect(html).toContain("250 USDT");
+    expect(html).toContain("180 USDT");
+    expect(html).toContain("50,000 NIM");
+  });
+
   it("offers sharing for every published status and deletion only for drafts", () => {
     for (const status of [
       "awaiting-client",

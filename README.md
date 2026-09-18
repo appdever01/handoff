@@ -2,7 +2,7 @@
 
 # Handoff frontend
 
-React/TypeScript interface for preparing and reviewing freelancer deliveries. The workspace shows the connected wallet's saved handoffs. A separate, clearly labelled example is available through How it works; it accepts no payment and serves no original file.
+React/TypeScript interface for preparing and reviewing freelancer deliveries. The workspace shows the connected wallet's saved handoffs. Labelled example deliveries are available through How it works while `VITE_SHOW_EXAMPLES` is unset or `true`. Set it to `false` and rebuild to hide them. Examples accept no payment and serve no original file.
 
 ## Run
 

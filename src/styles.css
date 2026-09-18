@@ -861,6 +861,32 @@ footer > span {
   gap: 20px;
   margin: 20px 0;
 }
+.example-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20px;
+  margin: 20px 0 0;
+}
+.example-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  padding: 23px;
+  border: 1px solid #e0e5d8;
+  border-radius: 9px;
+  background: var(--paper);
+  text-align: left;
+}
+.example-card strong {
+  font-size: 17px;
+  line-height: 1.35;
+}
+.example-card span {
+  font-size: 13px;
+  color: #7d8876;
+}
 .how-grid h2 {
   font-size: 19px;
   margin: 25px 0 12px;
@@ -1118,21 +1144,20 @@ footer > span {
   color: #80956b;
 }
 .coin {
-  display: grid;
-  place-items: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: 24px;
   height: 24px;
+  flex: 0 0 auto;
+}
+.coin img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.coin.usdt img {
   border-radius: 50%;
-  font-size: 13px;
-  font-weight: 700;
-}
-.coin.nim {
-  background: #f7d586;
-  color: #977425;
-}
-.coin.usdt {
-  background: #dfefe3;
-  color: #49946a;
 }
 .wallet-address {
   font-size: 10px;
@@ -1586,7 +1611,8 @@ dialog::backdrop {
   .card-content {
     padding: 15px;
   }
-  .how-grid {
+  .how-grid,
+  .example-grid {
     grid-template-columns: 1fr;
   }
   .delivery-grid {
